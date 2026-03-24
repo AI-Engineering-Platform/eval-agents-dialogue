@@ -9,11 +9,9 @@ These are the cheapest, fastest, and most deterministic. Run them on every exper
 1. Non-empty response check
 The simplest possible gate: did the agent return anything at all? Catches crashes, timeouts, and "Error: ..." strings.
 
-
 # score 1.0 if output is non-empty and doesn't start with "Error:"
 2. Substring match
 Does the expected answer literally appear in the response? Works well for exact-value questions (e.g., "2008", "Federal Reserve"). Zero cost, instant.
-
 
 # score 1.0 if expected_output.lower() in output.lower()
 Limitation: will miss paraphrased correct answers — that's why you need Tier 3.
@@ -21,14 +19,12 @@ Limitation: will miss paraphrased correct answers — that's why you need Tier 3
 3. Source citation presence
 Does the output include at least one URL or citation marker? The agent's GroundedResponse.sources is rich metadata, but you can also check the raw output string. A response with zero sources is more likely to be hallucinated.
 
-
 # score 1.0 if "http" appears in output, or len(response.sources) > 0
 Tier 2 — Code-based, Trace-level (no LLM, uses extract_trace_metrics)
 These require the two-pass run_experiment_with_trace_evals pattern from notebook 02, but still no LLM call — just arithmetic on the trace object.
 
 4. Latency evaluator
 How long did the agent take? Already demonstrated in 02_evaluation_harness.ipynb:
-
 
 metrics = extract_trace_metrics(trace)
 return [Evaluation(name="latency_sec", value=metrics.latency_sec)]
@@ -41,23 +37,23 @@ Total input + output tokens → estimated cost. TraceMetrics has .tokens and .co
 metrics.tool_call_count — a proxy for research depth. An agent that uses 0 tools answered from parametric memory (risky for a grounded QA agent). An agent that uses 30+ may be inefficient. A healthy band exists between them.
 
 7. Tool type diversity evaluator
-Did the agent use only google_search, or did it also call web_fetch / read_file? The PlanReAct agent is designed to go deep on sources — if it never fetches pages, it's skimming. You can extract tool names from trace observations deterministically:
-
+Did the agent use only google_search, or did it also call web_fetch / read_file? The PlanReAct agent is designed to go deep on sources — if it never fetches pages, it's skimming.
 
 tool_names_used = {obs.name for obs in trace.observations if obs.type == "SPAN"}
 used_fetch = "web_fetch" in tool_names_used
 Tier 3 — LLM-as-judge, Item-level (output only, no trace)
 These require an LLM call per item. The key distinction from Tier 1: they handle semantic equivalence that string matching cannot.
 
-8. DeepSearchQA grader ← already provided
+8. DeepSearchQA grader (already provided)
 The main outcome metric. F1 / precision / recall. Handles both Single Answer and Set Answer types. The LLM checks semantic containment, not exact string match. This is your primary quality signal.
 
 9. Answer conciseness rubric
-Custom rubric via create_llm_as_judge_evaluator. Some categories (Finance, Science) expect precise answers; others allow narrative. A specific rubric:
+Custom rubric via create_llm_as_judge_evaluator. Some categories (Finance, Science) expect precise answers; others allow narrative.
 
-
-- **conciseness**: 1 if the answer gives the core facts without unnecessary padding, 0 if the response is longer than ~3 paragraphs for a factual question
-- **no_hedging**: 1 if the agent commits to an answer rather than saying "I could not find...", 0 otherwise
+- **conciseness**: 1 if the answer gives the core facts without unnecessary padding,
+  0 if the response is longer than ~3 paragraphs for a factual question
+- **no_hedging**: 1 if the agent commits to an answer rather than saying
+  "I could not find...", 0 otherwise
 This catches the correct_with_extraneous failure mode at the prose level.
 
 10. Per-category correctness breakdown
@@ -66,12 +62,11 @@ Not a new evaluator — but a different use of the DeepSearchQA grader. Pass met
 Tier 4 — LLM-as-judge, Trace-level (uses trace evidence)
 Requires two-pass evaluation. The LLM judge has access to what the agent actually did, not just what it said.
 
-11. Trace groundedness ← already provided
+11. Trace groundedness (already provided)
 create_trace_groundedness_evaluator. Breaks the answer into atomic claims and checks each against tool observations from the trace. Score = (supported claims) / (total claims). This is the hallucination detector for the grounded QA use case — an answer can score well on F1 but still be fabricated if the right answer happened to be in the model's training data.
 
 12. Research plan quality
 The KnowledgeGroundedAgent with enable_planning=True emits a numbered research plan before tool execution. You can extract it from the trace (it's in span metadata or model thought events). A custom LLM-as-judge rubric then assesses:
-
 
 - **plan_specificity**: 1 if each plan step targets a specific sub-question, 0 if steps are vague
 - **plan_coverage**: 1 if the plan addresses all parts of a multi-part question, 0 if it misses a component
@@ -80,7 +75,6 @@ This is valuable because a bad plan causes downstream failure even if each tool 
 
 13. Tool call redundancy evaluator
 Did the agent issue near-duplicate search queries? e.g., "Federal Reserve interest rate 2023" followed by "Fed rate hike 2023". Extract all google_search inputs from trace observations, then ask an LLM judge:
-
 
 Given this list of search queries, score redundancy:
 - 0.0 = all queries are distinct and complementary
