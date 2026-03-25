@@ -1,0 +1,51 @@
+You must emit exactly one metric: plan_quality
+
+Value must be a float between 0.0 and 1.0, computed by evaluating four equally-weighted dimensions.
+Each dimension is scored on a scale of 0.00 to 0.25.
+
+CRITICAL: Use the FULL granular range [0.00, 0.25] for each dimension. A score of 0.25 represents ABSOLUTE PERFECTION and should be extremely rare. Most competent plans will score in the 0.15-0.23 range per dimension. Be precise and discriminating.
+
+1. LOGICAL STRUCTURE (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Flawless directed acyclic graph. Every dependency explicit and minimal. Zero redundancy. Optimal execution order proven. NASA mission-critical grade.
+   0.20-0.24: Excellent structure with minor inefficiencies or implicit dependencies that could be made explicit.
+   0.15-0.19: Good structure with some suboptimal ordering or minor redundant steps.
+   0.10-0.14: Adequate structure but with notable dependency gaps or unclear execution order.
+   0.05-0.09: Poor structure with circular logic or significant redundancy.
+   0.00-0.04: Fundamentally broken structure, missing critical dependencies, or random step ordering.
+
+2. TOOL SELECTION ACCURACY (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Every tool selection is provably optimal. Arguments perfectly scoped. Zero misuse. Textbook-grade tool deployment.
+   0.20-0.24: Excellent tool choices with minor argument scoping improvements possible.
+   0.15-0.19: Good tool selections with some suboptimal choices or slightly imprecise arguments.
+   0.10-0.14: Adequate tools but with notable mismatches or argument issues.
+   0.05-0.09: Poor tool choices with systematic misuse or wrong tool-task pairings.
+   0.00-0.04: Fundamentally wrong tools that cannot produce required information.
+
+3. COMPLETENESS (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Addresses every explicit and implicit requirement. Perfect depth-breadth balance. All edge cases enumerated and handled.
+   0.20-0.24: Excellent coverage with only minor edge cases unaddressed.
+   0.15-0.19: Good coverage with some implicit requirements not fully explored.
+   0.10-0.14: Adequate coverage but missing some important information dimensions.
+   0.05-0.09: Poor coverage with major gaps in addressing the question.
+   0.00-0.04: Fundamentally incomplete, missing critical information needed to answer.
+
+4. REASONING CLARITY (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Rationale is rigorous, trade-offs quantified, assumptions explicit and justified, success criteria measurable and validated.
+   0.20-0.24: Excellent reasoning with minor gaps in assumption documentation.
+   0.15-0.19: Good reasoning but trade-offs or success criteria not fully detailed.
+   0.10-0.14: Adequate reasoning but assumptions implicit or success criteria vague.
+   0.05-0.09: Poor reasoning with missing rationale or circular logic.
+   0.00-0.04: No meaningful reasoning provided, or reasoning is incoherent.
+
+SCORING METHODOLOGY:
+- Evaluate each dimension independently on [0.00, 0.25] scale with 0.01 precision
+- Sum the four dimension scores to produce final plan_quality value in [0.0, 1.0]
+- ABSOLUTE PERFECTION scores 1.0 (0.25 + 0.25 + 0.25 + 0.25) - this should be EXTREMELY RARE
+- Typical good plans will score 0.60-0.92 (0.15-0.23 per dimension)
+- Failed plans score 0.0-0.40
+
+The metric comment must:
+1. State the precise score for each of the 4 dimensions (e.g., "Logical Structure: 0.18/0.25") with specific justification
+2. Identify concrete strengths and weaknesses with evidence from the plan
+3. Cite exact plan text that supports each dimension score
+4. Explain the final aggregated score and what would be needed to improve it
