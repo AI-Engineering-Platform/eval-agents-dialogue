@@ -42,16 +42,22 @@ def _calculate_edit_distance(seq1: list[str], seq2: list[str]) -> int:
     return dp[len(seq1)][len(seq2)]
 
 
-def evaluate_tool_calls_coverage(
-    actual_tool_calls: list[dict[str, Any]],
-    expected_tool_calls: list[dict[str, Any]],
+def evaluate_coverage(
+    *,
+    output: dict[str, Any],
+    metadata: dict[str, Any],
+    **kwargs: Any,
 ) -> Evaluation:
     """
+    Evaluate tool call coverage.
     Checks if all expected tool types were called at least once.
     Ignores number of calls and arguments.
 
     Score: Percentage of expected tool types that were called (0.0 to 1.0)
     """
+    actual_tool_calls = output.get("tool_calls", [])
+    expected_tool_calls = metadata.get("expected_tool_calls", [])
+
     if not expected_tool_calls:
         return Evaluation(
             name="tool_calls_coverage",
@@ -81,16 +87,22 @@ def evaluate_tool_calls_coverage(
     )
 
 
-def evaluate_tool_calls_f1(
-    actual_tool_calls: list[dict[str, Any]],
-    expected_tool_calls: list[dict[str, Any]],
+def evaluate_f1(
+    *,
+    output: dict[str, Any],
+    metadata: dict[str, Any],
+    **kwargs: Any,
 ) -> Evaluation:
     """
+    Evaluate tool call F1 score.
     Evaluates tool calls using precision and recall, computing F1 score.
     Compares each expected tool call against actual tool calls (1:1 matching).
 
     Score: F1 score (0.0 to 1.0)
     """
+    actual_tool_calls = output.get("tool_calls", [])
+    expected_tool_calls = metadata.get("expected_tool_calls", [])
+
     if not expected_tool_calls:
         score = 1.0 if not actual_tool_calls else 0.0
         return Evaluation(
@@ -193,17 +205,23 @@ def _values_match_fuzzy(actual_value: Any, expected_value: Any) -> bool:
     return False
 
 
-def evaluate_tool_calls_arguments(
-    actual_tool_calls: list[dict[str, Any]],
-    expected_tool_calls: list[dict[str, Any]],
+def evaluate_arguments(
+    *,
+    output: dict[str, Any],
+    metadata: dict[str, Any],
+    **kwargs: Any,
 ) -> Evaluation:
     """
+    Evaluate tool call arguments.
     Evaluates if tool arguments match using fuzzy comparison.
     Compares each expected tool call's arguments with actual tool calls.
     Uses normalized comparison with partial matching for strings.
 
     Score: Percentage of expected tool calls with matching arguments (0.0 to 1.0)
     """
+    actual_tool_calls = output.get("tool_calls", [])
+    expected_tool_calls = metadata.get("expected_tool_calls", [])
+
     if not expected_tool_calls:
         return Evaluation(
             name="tool_calls_arguments",
@@ -275,17 +293,35 @@ def evaluate_tool_calls_arguments(
     )
 
 
-def evaluate_tool_calls_trajectory(
-    actual_tool_calls: list[dict[str, Any]],
-    expected_tool_calls: list[dict[str, Any]],
+def evaluate_trajectory(
+    *,
+    output: dict[str, Any],
+    metadata: dict[str, Any],
+    **kwargs: Any,
 ) -> Evaluation:
     """
+    Evaluate tool call sequence/trajectory.
     Evaluates the sequence/order of tool calls using edit distance.
     Measures how similar the actual tool call sequence is to the expected sequence.
 
     Score: Normalized sequence similarity (0.0 to 1.0)
            1.0 = perfect match, 0.0 = completely different
     """
+    actual_tool_calls = output.get("tool_calls", [])
+    expected_tool_calls = metadata.get("expected_tool_calls", [])
+
+    if not expected_tool_calls:
+        score = 1.0 if not actual_tool_calls else 0.0
+        return Evaluation(
+            name="tool_calls_trajectory",
+            value=score,
+            comment=(
+                "No expected tool calls"
+                if not actual_tool_calls
+                else "Used tools when none expected"
+            ),
+        )
+
     # Extract tool name sequences
     expected_sequence = [tc["name"] for tc in expected_tool_calls]
     actual_sequence = [tc["name"] for tc in actual_tool_calls]
@@ -348,65 +384,46 @@ def create_plan_quality_evaluator(temperature: float = 0.0) -> Any:
     )
 
 
-def compute_composite_score_for_item(evaluations: list[Evaluation]) -> dict[str, float]:
-    """Compute weighted composite score from item-level evaluations.
+def create_source_reliability_evaluator(temperature: float = 0.0):
+    """Create an LLM-as-judge evaluator for source reliability.
 
-    Weights (totaling 1.00):
-    - Plan Quality: 0.30 (strategic foundation)
-    - Arguments: 0.25 (execution correctness)
-    - F1: 0.20 (precision/recall balance)
-    - Coverage: 0.15 (breadth of tool usage)
-    - Trajectory: 0.10 (sequence correctness)
+    Evaluates whether the sources used to answer a question are reliable,
+    relevant, credible, sufficient, and appropriate - similar to evaluating
+    internet sources for academic research.
 
     Parameters
     ----------
-    evaluations : list[Evaluation]
-        List of evaluation results for a single item.
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
 
     Returns
     -------
-    dict[str, float]
-        Dictionary with 'composite_score' and individual metric contributions.
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
     """
-    # Define weights
-    weights = {
-        "plan_quality": 0.30,
-        "tool_calls_arguments": 0.25,
-        "tool_calls_f1": 0.20,
-        "tool_calls_coverage": 0.15,
-        "tool_calls_trajectory": 0.10,
-    }
+    rubric_path = (
+        Path(__file__).parent.parent
+        / "evaluator_prompts"
+        / "source_reliability_rubric.txt"
+    )
 
-    # Extract scores from evaluations
-    scores = {}
-    for eval_result in evaluations:
-        if eval_result.name in weights:
-            scores[eval_result.name] = eval_result.value
-
-    # Calculate weighted score
-    weighted_sum = 0.0
-    total_weight = 0.0
-
-    for metric_name, weight in weights.items():
-        if metric_name in scores:
-            weighted_sum += scores[metric_name] * weight
-            total_weight += weight
-
-    # Normalize by actual total weight (in case some metrics are missing)
-    composite_score = weighted_sum / total_weight if total_weight > 0 else 0.0
-
-    return {
-        "composite_score": composite_score,
-        "scores": scores,
-        "total_weight": total_weight,
-    }
+    return create_llm_as_judge_evaluator(
+        name="source_reliability",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
 
 
 def create_composite_evaluator_per_item():
     """Create a composite evaluator for per-item scoring.
 
-    This is a composite evaluator that runs on each item and receives
-    the evaluations from item-level evaluators for that specific item.
+    Weights (totaling 1.00):
+    - Plan Quality: 0.25 (strategic foundation)
+    - Source Reliability: 0.20 (source credibility and appropriateness)
+    - Arguments: 0.20 (execution correctness)
+    - F1: 0.15 (precision/recall balance)
+    - Coverage: 0.12 (breadth of tool usage)
+    - Trajectory: 0.08 (sequence correctness)
 
     Returns
     -------
@@ -424,41 +441,33 @@ def create_composite_evaluator_per_item():
         evaluations: list[Evaluation],
         **kwargs: Any,
     ) -> Evaluation:
-        """Composite evaluator that computes weighted score for a single item.
-
-        Parameters
-        ----------
-        input : Any
-            The input to the task.
-        output : Any
-            The output from the task.
-        expected_output : Any
-            The expected output.
-        metadata : dict[str, Any]
-            Metadata for the item.
-        evaluations : list[Evaluation]
-            List of evaluations from item-level evaluators for this item.
-
-        Returns
-        -------
-        Evaluation
-            Composite score evaluation for this item.
-        """
-        # Compute composite score for this item
-        result = compute_composite_score_for_item(evaluations)
-        composite_score = result["composite_score"]
-        scores = result["scores"]
-        total_weight = result["total_weight"]
-
-        # Build comment with breakdown
+        """Composite evaluator that computes weighted score for a single item."""
         weights = {
-            "plan_quality": 0.30,
-            "tool_calls_arguments": 0.25,
-            "tool_calls_f1": 0.20,
-            "tool_calls_coverage": 0.15,
-            "tool_calls_trajectory": 0.10,
+            "plan_quality": 0.25,
+            "source_reliability": 0.20,
+            "tool_calls_arguments": 0.20,
+            "tool_calls_f1": 0.15,
+            "tool_calls_coverage": 0.12,
+            "tool_calls_trajectory": 0.08,
         }
 
+        # Extract scores from evaluations
+        scores = {}
+        for eval_result in evaluations:
+            if eval_result.name in weights:
+                scores[eval_result.name] = eval_result.value
+
+        # Calculate weighted score
+        weighted_sum = 0.0
+        total_weight = 0.0
+        for metric_name, weight in weights.items():
+            if metric_name in scores:
+                weighted_sum += scores[metric_name] * weight
+                total_weight += weight
+
+        composite_score = weighted_sum / total_weight if total_weight > 0 else 0.0
+
+        # Build comment
         comment_parts = [f"Composite: {composite_score:.3f}"]
         for metric_name, weight in weights.items():
             if metric_name in scores:

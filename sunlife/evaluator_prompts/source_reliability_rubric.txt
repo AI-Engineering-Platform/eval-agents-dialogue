@@ -1,0 +1,59 @@
+You must emit exactly one metric: source_reliability
+
+Value must be a float between 0.0 and 1.0, computed by evaluating four equally-weighted dimensions.
+Each dimension is scored on a scale of 0.00 to 0.25.
+
+You are evaluating whether the sources used to answer a question are reliable and appropriate, similar to evaluating internet sources for academic research. Consider: Are these credible sources for answering THIS specific question?
+
+CRITICAL: Use the FULL granular range [0.00, 0.25] for each dimension. A score of 0.25 represents ABSOLUTE PERFECTION and should be extremely rare. Most appropriate source selections will score in the 0.15-0.23 range per dimension. Be precise and discriminating.
+
+1. RELEVANCE TO QUESTION (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Every source directly addresses the specific question asked. Perfect match between question intent and source content. Zero off-topic sources.
+   0.20-0.24: Excellent relevance with all sources on-topic, minor tangential information acceptable.
+   0.15-0.19: Good relevance with most sources directly addressing the question, some peripherally related.
+   0.10-0.14: Adequate relevance but several sources only loosely connected to the question.
+   0.05-0.09: Poor relevance with most sources tangentially related or addressing different topics.
+   0.00-0.04: Fundamentally irrelevant - sources do not address the question at all.
+
+2. SOURCE CREDIBILITY (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - All sources from authoritative, verified origins (official policy documents, regulatory filings, established procedures, primary sources). Provably trustworthy.
+   0.20-0.24: Excellent credibility with mostly authoritative sources, minimal secondary sources.
+   0.15-0.19: Good credibility with reputable sources but some reliance on internal drafts or unverified materials.
+   0.10-0.14: Adequate credibility but includes questionable, informal, or outdated sources.
+   0.05-0.09: Poor credibility with predominantly unreliable, unverified, or dubious sources.
+   0.00-0.04: No credibility - sources are unreliable, random documents, or completely untrustworthy.
+
+3. SUFFICIENCY & COVERAGE (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Sources provide complete, comprehensive information to fully answer the question. Perfect depth and breadth. No gaps. Minimal redundancy.
+   0.20-0.24: Excellent sufficiency with comprehensive coverage, minor information gaps or slight overlap.
+   0.15-0.19: Good sufficiency covering main aspects with some under-explored areas or moderate redundancy.
+   0.10-0.14: Adequate sufficiency but missing important details or excessive duplicate information.
+   0.05-0.09: Poor sufficiency with major information gaps or mostly redundant sources.
+   0.00-0.04: Insufficient - cannot answer the question with the sources provided.
+
+4. CURRENCY & APPROPRIATENESS (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - All sources are current and contextually appropriate for the question. Perfect temporal fit. Time-sensitive questions use latest sources. Historical questions use period-appropriate sources.
+   0.20-0.24: Excellent currency with mostly current sources, minor use of slightly dated materials.
+   0.15-0.19: Good currency with some outdated sources when newer versions exist.
+   0.10-0.14: Adequate currency but several sources notably outdated or temporally mismatched.
+   0.05-0.09: Poor currency with predominantly obsolete or wrong-timeframe sources.
+   0.00-0.04: Completely inappropriate - sources are obsolete, superseded, or entirely wrong time period.
+
+SCORING METHODOLOGY:
+- Evaluate each dimension independently on [0.00, 0.25] scale with 0.01 precision
+- Sum the four dimension scores to produce final source_reliability value in [0.0, 1.0]
+- ABSOLUTE PERFECTION scores 1.0 (0.25 + 0.25 + 0.25 + 0.25) - this should be EXTREMELY RARE
+- Typical good source selections will score 0.60-0.92 (0.15-0.23 per dimension)
+- Failed source selections score 0.0-0.40
+
+The metric comment must:
+1. State the precise score for each of the 4 dimensions (e.g., "Relevance: 0.18/0.25") with specific justification
+2. Compare sources against the specific question asked - are they appropriate for answering THIS question?
+3. Cite specific source titles that exemplify strengths or weaknesses
+4. Explain the final aggregated score and what better sources would look like
+
+EVALUATION INPUTS:
+- input: The user's question/query - THIS IS WHAT YOU'RE EVALUATING SOURCES AGAINST
+- output: Contains "sources" field with list of {title, uri} objects that were used to answer the question
+- expected_output: Not used for this evaluation
+- metadata: May contain additional context
