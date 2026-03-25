@@ -4,7 +4,8 @@ import os
 import tempfile
 from pathlib import Path
 
-from aieng.agent_evals.knowledge_qa import DeepSearchQADataset, KnowledgeGroundedAgent
+from aieng.agent_evals.knowledge_qa import (DeepSearchQADataset,
+                                            KnowledgeGroundedAgent)
 from aieng.agent_evals.langfuse import upload_dataset_to_langfuse
 from dotenv import load_dotenv
 from rich.console import Console
