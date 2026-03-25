@@ -271,3 +271,71 @@ def create_plan_quality_evaluator(temperature: float = 0.0) -> Any:
         rubric_markdown=rubric_path,
         model_config=LLMRequestConfig(temperature=temperature),
     )
+
+
+def compute_composite_score(evaluations: list[Evaluation]) -> Evaluation:
+    """Compute weighted composite score from all evaluator results.
+
+    Weights (totaling 1.00):
+    - Plan Quality: 0.30 (strategic foundation)
+    - Arguments: 0.25 (execution correctness)
+    - F1: 0.20 (precision/recall balance)
+    - Coverage: 0.15 (breadth of tool usage)
+    - Trajectory: 0.10 (sequence correctness)
+
+    Parameters
+    ----------
+    evaluations : list[Evaluation]
+        List of evaluation results from other evaluators.
+
+    Returns
+    -------
+    Evaluation
+        Composite evaluation with weighted score.
+    """
+    # Define weights
+    weights = {
+        "plan_quality": 0.30,
+        "tool_calls_arguments": 0.25,
+        "tool_calls_f1": 0.20,
+        "tool_calls_coverage": 0.15,
+        "tool_calls_trajectory": 0.10,
+    }
+
+    # Extract scores from evaluations
+    scores = {}
+    for eval_result in evaluations:
+        if eval_result.name in weights:
+            scores[eval_result.name] = eval_result.value
+
+    # Calculate weighted score
+    weighted_sum = 0.0
+    total_weight = 0.0
+    missing_metrics = []
+
+    for metric_name, weight in weights.items():
+        if metric_name in scores:
+            weighted_sum += scores[metric_name] * weight
+            total_weight += weight
+        else:
+            missing_metrics.append(metric_name)
+
+    # Normalize by actual total weight (in case some metrics are missing)
+    composite_score = weighted_sum / total_weight if total_weight > 0 else 0.0
+
+    # Build comment
+    comment_parts = [f"Composite Score: {composite_score:.3f}"]
+    for metric_name, weight in weights.items():
+        if metric_name in scores:
+            score = scores[metric_name]
+            contribution = score * weight / total_weight if total_weight > 0 else 0.0
+            metric_display = metric_name.replace("tool_calls_", "").replace("_", " ").title()
+            comment_parts.append(
+                f"{metric_display}: {score:.3f} (weight: {weight:.2f}, contribution: {contribution:.3f})"
+            )
+
+    return Evaluation(
+        name="composite_score",
+        value=composite_score,
+        comment=" | ".join(comment_parts),
+    )

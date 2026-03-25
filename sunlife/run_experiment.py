@@ -8,13 +8,13 @@ from aieng.agent_evals.evaluation import run_experiment
 from aieng.agent_evals.knowledge_qa import KnowledgeGroundedAgent
 from dotenv import load_dotenv
 from evaluators.langfuse_evaluators import (
-    create_plan_quality_evaluator,
     evaluate_arguments,
+    evaluate_composite,
     evaluate_coverage,
     evaluate_f1,
     evaluate_trajectory,
 )
-from langfuse.experiment import Evaluation
+from evaluators.evaluators import create_plan_quality_evaluator
 from rich.console import Console
 from rich.table import Table
 
@@ -66,6 +66,7 @@ def main():
             evaluate_arguments,
             evaluate_trajectory,
             create_plan_quality_evaluator(),
+            evaluate_composite,
         ],
         description="Evaluate tool call accuracy and plan quality - coverage, F1, arguments, trajectory, tool correctness judge, and plan quality judge.",
         max_concurrency=1,
