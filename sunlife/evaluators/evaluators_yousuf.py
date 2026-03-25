@@ -30,13 +30,13 @@ def _calculate_edit_distance(seq1: list[str], seq2: list[str]) -> int:
     # Fill DP table
     for i in range(1, len(seq1) + 1):
         for j in range(1, len(seq2) + 1):
-            if seq1[i-1] == seq2[j-1]:
-                dp[i][j] = dp[i-1][j-1]
+            if seq1[i - 1] == seq2[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1]
             else:
                 dp[i][j] = 1 + min(
-                    dp[i-1][j],    # deletion
-                    dp[i][j-1],    # insertion
-                    dp[i-1][j-1]   # substitution
+                    dp[i - 1][j],  # deletion
+                    dp[i][j - 1],  # insertion
+                    dp[i - 1][j - 1],  # substitution
                 )
 
     return dp[len(seq1)][len(seq2)]
@@ -96,7 +96,11 @@ def evaluate_tool_calls_f1(
         return Evaluation(
             name="tool_calls_f1",
             value=score,
-            comment="No expected tool calls" if not actual_tool_calls else "Used tools when none expected",
+            comment=(
+                "No expected tool calls"
+                if not actual_tool_calls
+                else "Used tools when none expected"
+            ),
         )
 
     # Match each expected tool call with an actual tool call
@@ -114,7 +118,9 @@ def evaluate_tool_calls_f1(
                 break
 
     # Precision: what fraction of actual tool calls were correct
-    precision = len(matched_actual) / len(actual_tool_calls) if actual_tool_calls else 0.0
+    precision = (
+        len(matched_actual) / len(actual_tool_calls) if actual_tool_calls else 0.0
+    )
 
     # Recall: what fraction of expected tool calls were found
     recall = matched_expected / len(expected_tool_calls) if expected_tool_calls else 0.0
@@ -198,7 +204,11 @@ def evaluate_tool_calls_trajectory(
         return Evaluation(
             name="tool_calls_trajectory",
             value=score,
-            comment="No expected tool calls" if not actual_tool_calls else "Used tools when none expected",
+            comment=(
+                "No expected tool calls"
+                if not actual_tool_calls
+                else "Used tools when none expected"
+            ),
         )
 
     # Extract tool name sequences
@@ -252,7 +262,9 @@ def create_plan_quality_evaluator(temperature: float = 0.0) -> Any:
     EvaluatorFunction
         Async evaluator compatible with `run_experiment`.
     """
-    rubric_path = Path(__file__).parent.parent / "evaluator_prompts" / "plan_quality_rubric.txt"
+    rubric_path = (
+        Path(__file__).parent.parent / "evaluator_prompts" / "plan_quality_rubric.txt"
+    )
 
     return create_llm_as_judge_evaluator(
         name="plan_quality_judge",
