@@ -15,7 +15,9 @@ from tool_call_evaluators import (
     evaluate_tool_calls_coverage,
     evaluate_tool_calls_f1,
     evaluate_tool_calls_arguments,
+    evaluate_tool_calls_trajectory,
     evaluate_tool_correctness_llm_judge,
+    evaluate_plan_quality_llm_judge,
 )
 
 load_dotenv(verbose=True)
@@ -34,6 +36,19 @@ async def task(*, item: Any, **kwargs: Any) -> dict[str, Any]:
         "answer": response.text,
         "tool_calls": response.tool_calls,
         "sources": [{"title": s.title, "uri": s.uri} for s in response.sources],
+        "plan": {
+            "reasoning": response.plan.reasoning,
+            "steps": [
+                {
+                    "step_id": step.step_id,
+                    "description": step.description,
+                    "step_type": step.step_type,
+                    "expected_output": step.expected_output,
+                    "status": step.status,
+                }
+                for step in response.plan.steps
+            ],
+        },
     }
 
 
@@ -73,6 +88,18 @@ def evaluate_arguments(
     return evaluate_tool_calls_arguments(actual_tool_calls, expected_tool_calls)
 
 
+def evaluate_trajectory(
+    *,
+    output: dict[str, Any],
+    metadata: dict[str, Any],
+    **kwargs: Any,
+) -> Evaluation:
+    """Evaluate tool call sequence/trajectory."""
+    actual_tool_calls = output.get("tool_calls", [])
+    expected_tool_calls = metadata.get("expected_tool_calls", [])
+    return evaluate_tool_calls_trajectory(actual_tool_calls, expected_tool_calls)
+
+
 def evaluate_llm_judge(
     *,
     output: dict[str, Any],
@@ -83,6 +110,18 @@ def evaluate_llm_judge(
     actual_tool_calls = output.get("tool_calls", [])
     expected_tool_calls = metadata.get("expected_tool_calls", [])
     return evaluate_tool_correctness_llm_judge(actual_tool_calls, expected_tool_calls)
+
+
+def evaluate_plan_quality(
+    *,
+    input: str,
+    output: dict[str, Any],
+    **kwargs: Any,
+) -> Evaluation:
+    """Evaluate plan quality with LLM judge."""
+    plan = output.get("plan", {})
+    available_tools = ["google_search", "web_fetch", "fetch_file", "grep_file", "read_file"]
+    return evaluate_plan_quality_llm_judge(input, plan, available_tools)
 
 
 def main():
@@ -97,9 +136,11 @@ def main():
             evaluate_coverage,
             evaluate_f1,
             evaluate_arguments,
+            evaluate_trajectory,
             evaluate_llm_judge,
+            evaluate_plan_quality,
         ],
-        description="Evaluate tool call accuracy - coverage, F1, argument matching, and LLM judge.",
+        description="Evaluate tool call accuracy and plan quality - coverage, F1, arguments, trajectory, tool correctness judge, and plan quality judge.",
         max_concurrency=1,
     )
 
