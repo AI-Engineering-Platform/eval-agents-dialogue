@@ -8,7 +8,6 @@ from typing import Any
 from langfuse.experiment import Evaluation
 
 from .evaluators import (
-    compute_composite_score,
     evaluate_tool_calls_arguments,
     evaluate_tool_calls_coverage,
     evaluate_tool_calls_f1,
@@ -62,12 +61,3 @@ def evaluate_trajectory(
     actual_tool_calls = output.get("tool_calls", [])
     expected_tool_calls = metadata.get("expected_tool_calls", [])
     return evaluate_tool_calls_trajectory(actual_tool_calls, expected_tool_calls)
-
-
-def evaluate_composite(
-    *,
-    evaluations: list[Evaluation],
-    **kwargs: Any,
-) -> Evaluation:
-    """Compute weighted composite score from all evaluator results."""
-    return compute_composite_score(evaluations)

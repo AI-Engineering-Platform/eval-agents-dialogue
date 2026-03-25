@@ -273,8 +273,8 @@ def create_plan_quality_evaluator(temperature: float = 0.0) -> Any:
     )
 
 
-def compute_composite_score(evaluations: list[Evaluation]) -> Evaluation:
-    """Compute weighted composite score from all evaluator results.
+def compute_composite_score_for_item(evaluations: list[Evaluation]) -> dict[str, float]:
+    """Compute weighted composite score from item-level evaluations.
 
     Weights (totaling 1.00):
     - Plan Quality: 0.30 (strategic foundation)
@@ -286,12 +286,12 @@ def compute_composite_score(evaluations: list[Evaluation]) -> Evaluation:
     Parameters
     ----------
     evaluations : list[Evaluation]
-        List of evaluation results from other evaluators.
+        List of evaluation results for a single item.
 
     Returns
     -------
-    Evaluation
-        Composite evaluation with weighted score.
+    dict[str, float]
+        Dictionary with 'composite_score' and individual metric contributions.
     """
     # Define weights
     weights = {
@@ -311,31 +311,96 @@ def compute_composite_score(evaluations: list[Evaluation]) -> Evaluation:
     # Calculate weighted score
     weighted_sum = 0.0
     total_weight = 0.0
-    missing_metrics = []
 
     for metric_name, weight in weights.items():
         if metric_name in scores:
             weighted_sum += scores[metric_name] * weight
             total_weight += weight
-        else:
-            missing_metrics.append(metric_name)
 
     # Normalize by actual total weight (in case some metrics are missing)
     composite_score = weighted_sum / total_weight if total_weight > 0 else 0.0
 
-    # Build comment
-    comment_parts = [f"Composite Score: {composite_score:.3f}"]
-    for metric_name, weight in weights.items():
-        if metric_name in scores:
-            score = scores[metric_name]
-            contribution = score * weight / total_weight if total_weight > 0 else 0.0
-            metric_display = metric_name.replace("tool_calls_", "").replace("_", " ").title()
-            comment_parts.append(
-                f"{metric_display}: {score:.3f} (weight: {weight:.2f}, contribution: {contribution:.3f})"
+    return {
+        "composite_score": composite_score,
+        "scores": scores,
+        "total_weight": total_weight,
+    }
+
+
+def create_composite_evaluator():
+    """Create a run-level evaluator that computes composite scores.
+
+    This is a run-level evaluator that processes all item results and computes
+    a weighted composite score for each item based on individual metric scores.
+
+    Returns
+    -------
+    Callable
+        Run-level evaluator function.
+    """
+    from typing import Any
+
+    def evaluate_composite_run(
+        *,
+        item_results: list[Any],
+        **kwargs: Any,
+    ) -> list[Evaluation]:
+        """Run-level evaluator that computes composite scores for all items.
+
+        Parameters
+        ----------
+        item_results : list[ExperimentItemResult]
+            List of results from all experiment items, each containing evaluations.
+
+        Returns
+        -------
+        list[Evaluation]
+            List of composite score evaluations, one per item.
+        """
+        composite_evaluations = []
+
+        for item_result in item_results:
+            # Extract evaluations for this item
+            evaluations = item_result.evaluations
+
+            # Compute composite score
+            result = compute_composite_score_for_item(evaluations)
+            composite_score = result["composite_score"]
+            scores = result["scores"]
+            total_weight = result["total_weight"]
+
+            # Build comment with breakdown
+            weights = {
+                "plan_quality": 0.30,
+                "tool_calls_arguments": 0.25,
+                "tool_calls_f1": 0.20,
+                "tool_calls_coverage": 0.15,
+                "tool_calls_trajectory": 0.10,
+            }
+
+            comment_parts = [f"Composite: {composite_score:.3f}"]
+            for metric_name, weight in weights.items():
+                if metric_name in scores:
+                    score = scores[metric_name]
+                    contribution = (
+                        score * weight / total_weight if total_weight > 0 else 0.0
+                    )
+                    metric_display = (
+                        metric_name.replace("tool_calls_", "").replace("_", " ").title()
+                    )
+                    comment_parts.append(
+                        f"{metric_display}: {score:.3f} (wgt: {weight:.2f}, contrib: {contribution:.3f})"
+                    )
+
+            # Create evaluation for this item
+            composite_evaluations.append(
+                Evaluation(
+                    name="composite_score",
+                    value=composite_score,
+                    comment=" | ".join(comment_parts),
+                )
             )
 
-    return Evaluation(
-        name="composite_score",
-        value=composite_score,
-        comment=" | ".join(comment_parts),
-    )
+        return composite_evaluations
+
+    return evaluate_composite_run

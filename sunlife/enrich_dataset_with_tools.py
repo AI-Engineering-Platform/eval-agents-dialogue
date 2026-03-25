@@ -12,7 +12,7 @@ from rich.console import Console
 load_dotenv(verbose=True)
 console = Console(width=100)
 
-DATASET_NAME = "DeepSearchQA-Sun-Life"
+DATASET_NAME = "DeepSearchQA-Sun-Life-Tool-calls-2"
 
 
 async def main():

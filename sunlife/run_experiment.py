@@ -7,21 +7,23 @@ from typing import Any
 from aieng.agent_evals.evaluation import run_experiment
 from aieng.agent_evals.knowledge_qa import KnowledgeGroundedAgent
 from dotenv import load_dotenv
+from evaluators.evaluators import (
+    create_composite_evaluator,
+    create_plan_quality_evaluator,
+)
 from evaluators.langfuse_evaluators import (
     evaluate_arguments,
-    evaluate_composite,
     evaluate_coverage,
     evaluate_f1,
     evaluate_trajectory,
 )
-from evaluators.evaluators import create_plan_quality_evaluator
 from rich.console import Console
 from rich.table import Table
 
 load_dotenv(verbose=True)
 console = Console(width=120)
 
-DATASET_NAME = "DeepSearchQA-Sun-Life_with_tools"
+DATASET_NAME = "DeepSearchQA-Sun-Life-Tool-calls-2"
 
 
 async def task(*, item: Any, **kwargs: Any) -> dict[str, Any]:
@@ -66,9 +68,11 @@ def main():
             evaluate_arguments,
             evaluate_trajectory,
             create_plan_quality_evaluator(),
-            evaluate_composite,
         ],
-        description="Evaluate tool call accuracy and plan quality - coverage, F1, arguments, trajectory, tool correctness judge, and plan quality judge.",
+        run_evaluators=[
+            create_composite_evaluator(),
+        ],
+        description="Evaluate tool call accuracy and plan quality - coverage, F1, arguments, trajectory, tool correctness judge, plan quality judge, and composite score.",
         max_concurrency=1,
     )
 
