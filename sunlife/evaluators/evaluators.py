@@ -11,8 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from aieng.agent_evals.evaluation.graders import create_llm_as_judge_evaluator
+from aieng.agent_evals.async_client_manager import AsyncClientManager
+from aieng.agent_evals.evaluation.graders._utils import run_structured_parse_call
 from aieng.agent_evals.evaluation.graders.config import LLMRequestConfig
 from langfuse.experiment import Evaluation
+from pydantic import BaseModel
 
 
 def _calculate_edit_distance(seq1: list[str], seq2: list[str]) -> int:
@@ -357,6 +360,35 @@ def evaluate_trajectory(
         comment=" | ".join(comment_parts),
     )
 
+def create_toxicity_evaluator(temperature: float = 0.0) -> Any:
+    """Return a Langfuse-compatible toxicity evaluator function.
+
+    The returned evaluator has the item-level signature expected by
+    `run_experiment`:
+
+        async def(*, input, output, expected_output, metadata, **kwargs)
+            -> list[Evaluation]
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent / "evaluator_prompts" / "toxicity_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="toxicity_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
+
 
 def create_plan_quality_evaluator(temperature: float = 0.0) -> Any:
     """Return a Langfuse-compatible plan quality evaluator function.
@@ -417,6 +449,182 @@ def create_source_reliability_evaluator(temperature: float = 0.0):
         model_config=LLMRequestConfig(temperature=temperature),
     )
 
+#Exact duplicate (tool_name, args) — rule-based
+async def redundancy_tool_call_evaluator(
+    *,
+    input: str,
+    output: Any,
+    expected_output: Any,
+    metadata: Any = None,
+    **kwargs: Any,
+) -> list[Evaluation]:
+    """Evaluate exact duplicate tool calls: same tool name and same args."""
+    tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
+
+    if not tool_calls:
+        return [Evaluation(name="redundancy_ratio", value=0.0, comment="No tool calls found")]
+
+    seen = []
+    duplicates = 0
+    for tc in tool_calls:
+        key = (tc.get("name"), str(tc.get("args", {})))
+        if key in seen:
+            duplicates += 1
+        else:
+            seen.append(key)
+
+    redundancy_ratio = duplicates / len(tool_calls)
+
+    return [
+        Evaluation(
+            name="redundancy_ratio",
+            value=round(redundancy_ratio, 3),
+            comment=f"{duplicates} exact duplicate calls out of {len(tool_calls)} total",
+        )
+    ]
+
+#Duplicate URLs (web_fetch) — rule-based
+async def duplicate_url_evaluator(
+    *,
+    input: str,
+    output: Any,
+    expected_output: Any,
+    metadata: Any = None,
+    **kwargs: Any,
+) -> list[Evaluation]:
+    """Evaluate whether the agent fetched the same URL more than once."""
+    tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
+
+    fetch_calls = [
+        tc for tc in tool_calls
+        if tc.get("name") in ("web_fetch", "fetch_file")
+    ]
+
+    if not fetch_calls:
+        return [Evaluation(name="duplicate_url_ratio", value=0.0, comment="No fetch calls found")]
+
+    urls = [str(tc.get("args", {}).get("url", "")) for tc in fetch_calls]
+    seen_urls: list[str] = []
+    duplicate_urls: list[str] = []
+
+    for url in urls:
+        if url and url in seen_urls:
+            duplicate_urls.append(url)
+        else:
+            seen_urls.append(url)
+
+    duplicate_url_ratio = len(duplicate_urls) / len(fetch_calls)
+
+    return [
+        Evaluation(
+            name="duplicate_url_ratio",
+            value=round(duplicate_url_ratio, 3),
+            comment=(
+                f"{len(duplicate_urls)} duplicate URLs out of {len(fetch_calls)} fetch calls"
+                if duplicate_urls
+                else f"No duplicate URLs across {len(fetch_calls)} fetch calls"
+            ),
+        )
+    ]
+
+SEMANTIC_REDUNDANCY_SYSTEM_PROMPT = """\
+You are evaluating whether a list of search queries issued by an AI agent are semantically redundant.
+
+Two queries are semantically redundant if they would retrieve substantially overlapping information,
+even if they use different words, abbreviations, or phrasing.
+
+Examples of redundant pairs:
+- "Federal Reserve interest rate hike" and "Fed rate increase 2024"
+- "causes of 2008 financial crisis" and "what caused the subprime mortgage collapse"
+
+Examples of non-redundant pairs:
+- "Basel III capital requirements" and "Basel III implementation timeline"
+- "Federal Reserve mandate" and "Federal Reserve interest rate history"
+
+Return valid JSON only. Do not use Markdown code blocks.
+Schema:
+{
+  "redundant_pairs": [["query A", "query B"], ...],
+  "reasoning": "brief explanation"
+}
+"""
+
+
+class SemanticRedundancyResponse(BaseModel):
+    redundant_pairs: list[list[str]]
+    reasoning: str
+
+#Semantic query overlap (google_search) — LLM-as-judge
+async def semantic_query_redundancy_evaluator(
+    *,
+    input: str,
+    output: Any,
+    expected_output: Any,
+    metadata: Any = None,
+    **kwargs: Any,
+) -> list[Evaluation]:
+    """Evaluate whether the agent issued semantically redundant search queries."""
+    tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
+
+    search_calls = [
+        tc for tc in tool_calls
+        if tc.get("name") in ("google_search", "google_search_agent")
+    ]
+
+    if len(search_calls) < 2:
+        return [
+            Evaluation(
+                name="semantic_query_redundancy",
+                value=0.0,
+                comment="Fewer than 2 search queries — nothing to compare",
+            )
+        ]
+
+    queries = [str(tc.get("args", {}).get("query", tc.get("args", ""))) for tc in search_calls]
+    queries_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(queries))
+
+    user_prompt = f"Here are the search queries issued by the agent:\n\n{queries_text}\n\nIdentify any semantically redundant pairs."
+
+    try:
+        client_manager = AsyncClientManager.get_instance()
+        completion = await run_structured_parse_call(
+            openai_client=client_manager.openai_client,
+            default_model=client_manager.configs.default_evaluator_model,
+            model_config=LLMRequestConfig(temperature=0.0),
+            system_prompt=SEMANTIC_REDUNDANCY_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            response_format=SemanticRedundancyResponse,
+        )
+
+        result = completion.choices[0].message.parsed
+        if result is None:
+            raise ValueError("LLM returned no structured output")
+
+        total_pairs = len(queries) * (len(queries) - 1) // 2  # n choose 2
+        redundant_count = len(result.redundant_pairs)
+        redundancy_score = redundant_count / total_pairs if total_pairs > 0 else 0.0
+
+        comment = result.reasoning
+        if result.redundant_pairs:
+            pair_strs = "; ".join(f'"{a}" ~ "{b}"' for a, b in result.redundant_pairs)
+            comment = f"Redundant pairs: {pair_strs}. {result.reasoning}"
+
+        return [
+            Evaluation(
+                name="semantic_query_redundancy",
+                value=round(redundancy_score, 3),
+                comment=comment,
+            )
+        ]
+
+    except Exception as e:
+        return [
+            Evaluation(
+                name="semantic_query_redundancy",
+                value=0.0,
+                comment=f"Evaluation error: {e}",
+            )
+        ]
 
 def evaluate_composite(
     *,
@@ -426,27 +634,52 @@ def evaluate_composite(
     """Composite evaluator that computes weighted score for a single item.
 
     Weights (totaling 1.00):
-    - Plan Quality: 0.25 (strategic foundation)
-    - Source Reliability: 0.20 (source credibility and appropriateness)
-    - Arguments: 0.20 (execution correctness)
-    - F1: 0.15 (precision/recall balance)
-    - Coverage: 0.12 (breadth of tool usage)
-    - Trajectory: 0.08 (sequence correctness)
+    - Correctness: 0.17 (factual accuracy and grounding)
+    - Answer Relevance: 0.15 (relevance and completeness)
+    - Hallucination: 0.13 (inverted hallucination = grounding quality)
+    - Plan Quality: 0.12 (strategic foundation)
+    - Source Reliability: 0.10 (source credibility)
+    - Answer Clarity: 0.10 (understandability and structure)
+    - Arguments: 0.09 (execution correctness)
+    - F1: 0.07 (precision/recall balance)
+    - Coverage: 0.03 (breadth of tool usage)
+    - Trajectory: 0.02 (sequence correctness)
+    - Toxicity: 0.01 (inverted toxicity = safety)
+    - Redundancy Ratio: 0.01 (duplicate tool calls - inverted)
+    - Duplicate URL Ratio: 0.005 (duplicate fetches - inverted)
+    - Semantic Query Redundancy: 0.005 (redundant searches - inverted)
+
+    Note: Redundancy/toxicity metrics are inverted (1 - value) so lower = higher score.
     """
     weights = {
-        "plan_quality": 0.25,
-        "source_reliability": 0.20,
-        "tool_calls_arguments": 0.20,
-        "tool_calls_f1": 0.15,
-        "tool_calls_coverage": 0.12,
-        "tool_calls_trajectory": 0.08,
+        "correctness": 0.17,
+        "answer_relevance": 0.15,
+        "hallucination": 0.13,
+        "plan_quality": 0.12,
+        "source_reliability": 0.10,
+        "answer_clarity": 0.10,
+        "tool_calls_arguments": 0.09,
+        "tool_calls_f1": 0.07,
+        "tool_calls_coverage": 0.03,
+        "tool_calls_trajectory": 0.02,
+        "toxicity_score": 0.01,  # Inverted: lower is better
+        "redundancy_ratio": 0.01,  # Inverted: lower is better
+        "duplicate_url_ratio": 0.005,  # Inverted: lower is better
+        "semantic_query_redundancy": 0.005,  # Inverted: lower is better
     }
 
     # Extract scores from evaluations
+    # Redundancy metrics need to be inverted (lower redundancy = better score)
+    redundancy_metrics = {"redundancy_ratio", "duplicate_url_ratio", "semantic_query_redundancy"}
+
     scores = {}
     for eval_result in evaluations:
         if eval_result.name in weights:
-            scores[eval_result.name] = eval_result.value
+            value = eval_result.value
+            # Invert redundancy metrics: 1.0 - value (so 0 redundancy = 1.0 score)
+            if eval_result.name in redundancy_metrics:
+                value = 1.0 - value
+            scores[eval_result.name] = value
 
     # Calculate weighted score
     weighted_sum = 0.0
@@ -475,4 +708,116 @@ def evaluate_composite(
         name="composite_score",
         value=composite_score,
         comment=" | ".join(comment_parts),
+    )
+
+def create_answer_relevance_evaluator(temperature: float = 0.0) -> Any:
+    """Return a Langfuse-compatible answer relevance evaluator function.
+
+    Evaluates whether the agent's answer is relevant, complete, and aligned
+    with the user's intent.
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent
+        / "evaluator_prompts"
+        / "answer_relevance_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="answer_relevance_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
+
+
+def create_correctness_evaluator(temperature: float = 0.0) -> Any:
+    """Return a Langfuse-compatible correctness evaluator function.
+
+    Evaluates factual correctness and reasoning quality of the agent response.
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent
+        / "evaluator_prompts"
+        / "correctness_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="correctness_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
+
+
+def create_hallucination_evaluator(temperature: float = 0.0) -> Any:
+    """Return a Langfuse-compatible hallucination evaluator function.
+
+    Evaluates whether the response is grounded and free from hallucinations.
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent
+        / "evaluator_prompts"
+        / "hallucination_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="hallucination_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
+
+
+def create_answer_clarity_evaluator(temperature: float = 0.0):
+    """Create an LLM-as-judge evaluator for answer clarity
+
+    Evaluates answer's understandability, conciseness, and structure.
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent
+        / "evaluator_prompts"
+        / "answer_clarity_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="answer_clarity",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
     )

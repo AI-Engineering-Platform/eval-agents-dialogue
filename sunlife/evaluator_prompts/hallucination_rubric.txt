@@ -1,0 +1,52 @@
+You must emit exactly one metric: hallucination
+
+Value must be a float between 0.0 and 1.0, computed by evaluating four equally-weighted dimensions.
+Each dimension is scored on a scale of 0.00 to 0.25.
+
+Note: Higher scores indicate LESS hallucination (better grounding). A score of 1.0 means zero hallucination.
+
+CRITICAL: Use the FULL granular range [0.00, 0.25] for each dimension. A score of 0.25 represents ABSOLUTE PERFECTION (zero hallucination) and should be extremely rare. Most well-grounded answers will score in the 0.15-0.23 range per dimension. Be precise and discriminating.
+
+1. CLAIM GROUNDING (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Every single factual claim is explicitly supported by retrieved evidence or universally accepted knowledge. Zero unsupported assertions.
+   0.20-0.24: Excellent grounding with all major claims supported, minor details may lack explicit evidence.
+   0.15-0.19: Good grounding with most claims supported but some assertions lack clear evidence.
+   0.10-0.14: Adequate grounding but several unsupported or weakly supported claims present.
+   0.05-0.09: Poor grounding with many unsupported claims or fabricated information.
+   0.00-0.04: Fundamentally hallucinated - contains major fabricated or completely unsupported claims.
+
+2. ENTITY ACCURACY (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - All entities (people, places, organizations, numbers, dates, sources) are real, verifiable, and accurate.
+   0.20-0.24: Excellent entity accuracy with all entities verifiable, minor precision issues acceptable.
+   0.15-0.19: Good entity accuracy with entities mostly verifiable but some imprecision or ambiguity.
+   0.10-0.14: Adequate entity accuracy but contains questionable or unverifiable entities.
+   0.05-0.09: Poor entity accuracy with several invented, fabricated, or incorrect entities.
+   0.00-0.04: Fundamentally fabricated - contains multiple fake entities, numbers, or sources.
+
+3. CITATION VALIDITY (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - All citations are real, accurate, and directly support the claims they're attached to.
+   0.20-0.24: Excellent citation validity with all sources properly used and relevant.
+   0.15-0.19: Good citation validity with sources mostly appropriate but some weak connections.
+   0.10-0.14: Adequate citation validity but some citations misused or don't fully support claims.
+   0.05-0.09: Poor citation validity with fake citations or significant misuse of sources.
+   0.00-0.04: Fundamentally invalid - citations are fabricated or completely irrelevant to claims.
+
+4. UNCERTAINTY HANDLING (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Uncertainty is explicitly expressed whenever evidence is insufficient. No speculative claims presented as facts.
+   0.20-0.24: Excellent uncertainty handling with appropriate hedging and qualifications.
+   0.15-0.19: Good uncertainty handling with most uncertain claims qualified appropriately.
+   0.10-0.14: Adequate uncertainty handling but some speculative claims presented too confidently.
+   0.05-0.09: Poor uncertainty handling with many unwarranted confident assertions.
+   0.00-0.04: Fundamentally overconfident - presents speculation and uncertainty as established fact.
+
+SCORING METHODOLOGY:
+- Evaluate each dimension independently on [0.00, 0.25] scale with 0.01 precision
+- Sum the four dimension scores to produce final hallucination value in [0.0, 1.0]
+- ABSOLUTE PERFECTION scores 1.0 (0.25 + 0.25 + 0.25 + 0.25) = zero hallucination - this should be EXTREMELY RARE
+- Typical well-grounded answers will score 0.60-0.92 (0.15-0.23 per dimension)
+- Highly hallucinated answers score 0.0-0.40
+
+The metric comment must:
+1. State the precise score for each of the 4 dimensions (e.g., "Claim Grounding: 0.18/0.25") with specific justification
+2. Identify specific hallucinations, unsupported claims, or fabricated entities with examples from the answer
+3. Explain the final aggregated score and what changes would be needed to reduce hallucination

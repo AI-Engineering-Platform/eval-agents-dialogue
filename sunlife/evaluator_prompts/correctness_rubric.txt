@@ -1,0 +1,50 @@
+You must emit exactly one metric: correctness
+
+Value must be a float between 0.0 and 1.0, computed by evaluating four equally-weighted dimensions.
+Each dimension is scored on a scale of 0.00 to 0.25.
+
+CRITICAL: Use the FULL granular range [0.00, 0.25] for each dimension. A score of 0.25 represents ABSOLUTE PERFECTION and should be extremely rare. Most correct answers will score in the 0.15-0.23 range per dimension. Be precise and discriminating.
+
+1. FACTUAL ACCURACY (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - ALL claims are 100% factually accurate, verifiable, and precise with zero errors.
+   0.20-0.24: Excellent accuracy with all major facts correct, minor precision issues acceptable.
+   0.15-0.19: Good accuracy with facts mostly correct but some minor inaccuracies or imprecision.
+   0.10-0.14: Adequate accuracy but contains notable factual errors or unverifiable claims.
+   0.05-0.09: Poor accuracy with multiple factual errors or misleading statements.
+   0.00-0.04: Fundamentally inaccurate - contains major factual errors or false information.
+
+2. SOURCE GROUNDING (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Every claim is explicitly supported by reliable, verifiable sources. Zero unsupported assertions.
+   0.20-0.24: Excellent grounding with all major claims supported by sources, minor details may lack explicit citation.
+   0.15-0.19: Good grounding with most claims supported but some assertions lack clear source backing.
+   0.10-0.14: Adequate grounding but several claims are unsupported or source support is weak.
+   0.05-0.09: Poor grounding with many unsupported claims or unreliable source usage.
+   0.00-0.04: Fundamentally ungrounded - claims lack source support or use unreliable sources.
+
+3. REASONING SOUNDNESS (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - All reasoning steps are logically valid, clearly stated, and rigorously support conclusions.
+   0.20-0.24: Excellent reasoning with valid logic and clear support for conclusions.
+   0.15-0.19: Good reasoning with mostly sound logic but some steps could be clearer or stronger.
+   0.10-0.14: Adequate reasoning but contains logical gaps or weak inferential steps.
+   0.05-0.09: Poor reasoning with flawed logic or unsupported conclusions.
+   0.00-0.04: Fundamentally flawed reasoning - invalid logic or incoherent argumentation.
+
+4. PRECISION & SPECIFICITY (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Claims are maximally precise with specific numbers, dates, names, and details where appropriate.
+   0.20-0.24: Excellent precision with specific details provided, minor vagueness acceptable.
+   0.15-0.19: Good precision with reasonable specificity but some vague or general statements.
+   0.10-0.14: Adequate precision but many claims are vague or lack necessary specificity.
+   0.05-0.09: Poor precision with predominantly vague or overly general statements.
+   0.00-0.04: Fundamentally imprecise - claims are so vague as to be meaningless or misleading.
+
+SCORING METHODOLOGY:
+- Evaluate each dimension independently on [0.00, 0.25] scale with 0.01 precision
+- Sum the four dimension scores to produce final correctness value in [0.0, 1.0]
+- ABSOLUTE PERFECTION scores 1.0 (0.25 + 0.25 + 0.25 + 0.25) - this should be EXTREMELY RARE
+- Typical correct answers will score 0.60-0.92 (0.15-0.23 per dimension)
+- Incorrect answers score 0.0-0.40
+
+The metric comment must:
+1. State the precise score for each of the 4 dimensions (e.g., "Factual Accuracy: 0.20/0.25") with specific justification
+2. Identify specific errors, unsupported claims, or logical flaws with examples from the answer
+3. Explain the final aggregated score and what corrections would be needed to improve it

@@ -1,0 +1,12 @@
+You must emit exactly one final metric: clarity_of_answer
+
+## Evaluation Criteria
+The response will be evaluated based on its overall clarity, considering understandability, conciseness, and structure. A single score between 0 and 1 will be emitted to represent the clarity of the explanation. The criteria are as follows:
+
+### Scoring
+- **0.0 - 0.3**: The response is unclear, overly verbose, poorly structured, or difficult to understand. It fails to meet the basic requirements of clarity.
+- **0.4 - 0.6**: The response is somewhat clear but contains noticeable issues in understandability, conciseness, or structure. Improvements are needed to make the explanation more effective.
+- **0.7 - 0.9**: The response is mostly clear, concise, and well-structured, with only minor issues that do not significantly impact the overall clarity.
+- **1.0**: The response is exceptionally clear, concise, and well-structured, with no noticeable issues. It fully meets the requirements of clarity.
+
+Include a one-sentence justification citing the specific part of the response that most influenced your score.
