@@ -445,34 +445,6 @@ def create_source_reliability_evaluator(temperature: float = 0.0):
         model_config=LLMRequestConfig(temperature=temperature),
     )
 
-def create_answer_clarity_evaluator(temperature: float = 0.0):
-    """Create an LLM-as-judge evaluator for clarity of answer.
-
-    Evaluates answer's understandability, conciseness, and structure
-
-    Parameters
-    ----------
-    temperature : float
-        Judge model temperature. Keep at 0.0 for deterministic scoring.
-
-    Returns
-    -------
-    EvaluatorFunction
-        Async evaluator compatible with `run_experiment`.
-    """
-    rubric_path = (
-        Path(__file__).parent.parent
-        / "evaluator_prompts"
-        / "answer_clarity.txt"
-    )
-
-    return create_llm_as_judge_evaluator(
-        name="answer_clarity",
-        rubric_markdown=rubric_path,
-        model_config=LLMRequestConfig(temperature=temperature),
-    )
-
-
 #Exact duplicate (tool_name, args) — rule-based
 async def redundancy_tool_call_evaluator(
     *,
