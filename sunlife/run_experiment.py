@@ -13,7 +13,6 @@ from evaluators.evaluators import (create_composite_evaluator_per_item,
                                    evaluate_arguments, evaluate_coverage,
                                    evaluate_f1, evaluate_trajectory)
 from rich.console import Console
-from rich.table import Table
 
 load_dotenv(verbose=True)
 console = Console(width=120)
@@ -72,34 +71,6 @@ def main():
 
     console.print(f"\n[green]✓[/green] Experiment completed!")
     console.print(f"[cyan]Results published to Langfuse[/cyan]")
-
-    # Print summary table
-    if experiment_result.item_results:
-        table = Table(title="Tool Call Evaluation Summary")
-        table.add_column("Metric", style="cyan")
-        table.add_column("Avg Score", justify="right")
-        table.add_column("Count", justify="right")
-
-        # Aggregate scores by metric name
-        metrics = {}
-        for item in experiment_result.item_results:
-            for eval_result in item.evaluations:
-                metric_name = eval_result.name
-                if metric_name not in metrics:
-                    metrics[metric_name] = []
-                metrics[metric_name].append(eval_result.value)
-
-        for metric_name, scores in metrics.items():
-            avg_score = sum(scores) / len(scores) if scores else 0.0
-            table.add_row(
-                metric_name.replace("tool_calls_", "").replace("_", " ").title(),
-                f"{avg_score:.2f}",
-                str(len(scores)),
-            )
-
-        console.print("\n")
-        console.print(table)
-
 
 if __name__ == "__main__":
     main()
