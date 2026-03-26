@@ -12,7 +12,8 @@ from typing import Any
 
 from aieng.agent_evals.async_client_manager import AsyncClientManager
 from aieng.agent_evals.evaluation.graders import create_llm_as_judge_evaluator
-from aieng.agent_evals.evaluation.graders._utils import run_structured_parse_call
+from aieng.agent_evals.evaluation.graders._utils import \
+    run_structured_parse_call
 from aieng.agent_evals.evaluation.graders.config import LLMRequestConfig
 from langfuse.experiment import Evaluation
 from pydantic import BaseModel
@@ -649,35 +650,102 @@ def evaluate_composite(
 ) -> Evaluation:
     """Composite evaluator that computes weighted score for a single item.
 
-    Weights (totaling 1.00):
-    - Correctness: 0.17 (factual accuracy and grounding)
-    - Answer Relevance: 0.15 (relevance and completeness)
-    - Hallucination: 0.13 (inverted hallucination = grounding quality)
-    - Plan Quality: 0.12 (strategic foundation)
-    - Source Reliability: 0.10 (source credibility)
-    - Answer Clarity: 0.10 (understandability and structure)
-    - Arguments: 0.09 (execution correctness)
-    - F1: 0.07 (precision/recall balance)
-    - Coverage: 0.03 (breadth of tool usage)
-    - Trajectory: 0.02 (sequence correctness)
-    - Toxicity: 0.01 (inverted toxicity = safety)
-    - Redundancy Ratio: 0.01 (duplicate tool calls - inverted)
-    - Duplicate URL Ratio: 0.005 (duplicate fetches - inverted)
-    - Semantic Query Redundancy: 0.005 (redundant searches - inverted)
+    This evaluator combines multiple evaluation dimensions into a single score (0.0-1.0)
+    using weighted averaging. Higher composite scores indicate better overall performance.
 
-    Note: Redundancy/toxicity metrics are inverted (1 - value) so lower = higher score.
+    EVALUATION DIMENSIONS & WEIGHTS (totaling 1.00):
+
+    ANSWER QUALITY METRICS (0.60 total - PRIMARY FOCUS):
+
+    1. Correctness: 0.22 (HIGHEST WEIGHT)
+       - Measures: Factual accuracy, source grounding, reasoning soundness, precision
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why most important: Core requirement - answers must be factually correct
+       - Rubric: evaluator_prompts/correctness_rubric.txt
+
+    2. Answer Relevance: 0.16
+       - Measures: Relevance to question, completeness, intent alignment, focus
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Answer must address what was actually asked
+       - Rubric: evaluator_prompts/answer_relevance_rubric.txt
+
+    3. Hallucination: 0.14 (INVERTED: higher = less hallucination)
+       - Measures: Claim grounding, entity accuracy, citation validity, uncertainty handling
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Ensures response doesn't fabricate information
+       - Rubric: evaluator_prompts/hallucination_rubric.txt
+
+    4. Answer Clarity: 0.11
+       - Measures: Understandability, conciseness, logical structure, readability
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Correct answers must also be comprehensible
+       - Rubric: evaluator_prompts/answer_clarity_rubric.txt
+
+    5. Source Reliability: 0.11
+       - Measures: Relevance to question, source credibility, sufficiency, currency
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Quality of sources directly impacts answer trustworthiness
+       - Rubric: evaluator_prompts/source_reliability_rubric.txt
+
+    PLANNING & STRATEGY METRICS (0.12 total):
+
+    6. Plan Quality: 0.12
+       - Measures: Logical structure, tool selection accuracy, completeness, reasoning clarity
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Good plans lead to better execution and answers
+       - Rubric: evaluator_prompts/plan_quality_rubric.txt
+
+    TOOL EXECUTION METRICS (0.12 total):
+
+    7. F1 Score: 0.12
+       - Measures: Precision and recall of tool calls (did agent call expected tools?)
+       - Deterministic: Compares actual vs expected tool calls with 1:1 matching
+       - Why important: Sanity check that agent used appropriate tools
+
+    SAFETY & EFFICIENCY METRICS (0.02 total):
+
+    8. Toxicity: 0.01 (INVERTED: higher = less toxic)
+       - Measures: Freedom from harmful content, dangerous instructions, bias, data exposure
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Ensures safe, appropriate responses
+       - Rubric: evaluator_prompts/toxicity_rubric.txt
+
+    9. Redundancy Ratio: 0.01 (INVERTED: higher = less redundant)
+       - Measures: Exact duplicate tool calls (same name + same args)
+       - Deterministic: Counts duplicate (tool_name, args) pairs
+       - Why important: Penalizes inefficient repeated operations
+
+    10. Duplicate URL Ratio: 0.005 (INVERTED: higher = fewer duplicate fetches)
+        - Measures: Whether agent fetched same URL multiple times
+        - Deterministic: Tracks URL reuse in web_fetch/fetch_file calls
+        - Why important: Penalizes unnecessary refetching of same resources
+
+    11. Semantic Query Redundancy: 0.005 (INVERTED: higher = less semantic overlap)
+        - Measures: Whether search queries retrieve substantially overlapping information
+        - LLM judge: Evaluates semantic similarity between query pairs
+        - Why important: Penalizes redundant searches with different wording
+
+    SCORING METHODOLOGY:
+    - Each metric contributes: weight × metric_value to final score
+    - INVERTED metrics (hallucination, toxicity, redundancy): contribution = weight × (1 - metric_value)
+      This ensures lower hallucination/toxicity/redundancy = higher composite score
+    - Final composite = sum of all weighted contributions / sum of weights present
+    - Missing metrics are excluded from calculation (doesn't penalize score)
+
+    DESIGN RATIONALE:
+    - Answer quality dominates (60%) because correct, relevant, grounded answers are the core goal
+    - Correctness weighted highest (22%) as factual accuracy is non-negotiable
+    - Tool execution simplified to F1 only (12%) - detailed tool metrics redundant with source_reliability
+    - Safety/efficiency low weight (2%) but still tracked for monitoring
     """
     weights = {
-        "correctness": 0.17,
-        "answer_relevance": 0.15,
-        "hallucination": 0.13,
+        "correctness": 0.22,
+        "answer_relevance": 0.16,
+        "hallucination": 0.14,
         "plan_quality": 0.12,
-        "source_reliability": 0.10,
-        "answer_clarity": 0.10,
-        "tool_calls_arguments": 0.09,
-        "tool_calls_f1": 0.07,
-        "tool_calls_coverage": 0.03,
-        "tool_calls_trajectory": 0.02,
+        "source_reliability": 0.11,
+        "answer_clarity": 0.11,
+        "tool_calls_f1": 0.12,
         "toxicity_score": 0.01,  # Inverted: lower is better
         "redundancy_ratio": 0.01,  # Inverted: lower is better
         "duplicate_url_ratio": 0.005,  # Inverted: lower is better
