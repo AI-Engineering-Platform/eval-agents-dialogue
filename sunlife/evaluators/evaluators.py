@@ -1,6 +1,10 @@
 """
-Deterministic tool call evaluators: coverage, F1, arguments, trajectory.
-Each evaluator returns a Langfuse Evaluation with a 0.0–1.0 score and a reason.
+Evaluators for tool calls, plan quality, and source reliability.
+
+Includes:
+- Deterministic evaluators: coverage, F1, arguments, trajectory
+- LLM-as-judge evaluators: plan quality, source reliability
+- Composite evaluator: weighted combination of all metrics
 """
 
 from pathlib import Path
