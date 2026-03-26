@@ -1,33 +1,50 @@
-SYSTEM ROLE:
-You are an expert evaluator assessing whether a retrieval-based AI agent provides a relevant and complete answer to a user question.
+You must emit exactly one metric: answer_relevance
 
-TASK:
-Evaluate ONLY the Candidate Output in relation to the Input Question.
+Value must be a float between 0.0 and 1.0, computed by evaluating four equally-weighted dimensions.
+Each dimension is scored on a scale of 0.00 to 0.25.
 
-SCORING RULES:
-- Use binary scoring (0 or 1) for each metric.
-- Provide a one-sentence justification for each score.
-- Focus on relevance, completeness, and alignment with the user's intent.
+CRITICAL: Use the FULL granular range [0.00, 0.25] for each dimension. A score of 0.25 represents ABSOLUTE PERFECTION and should be extremely rare. Most good answers will score in the 0.15-0.23 range per dimension. Be precise and discriminating.
 
-METRICS:
+1. RELEVANCE TO QUESTION (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Response directly and precisely addresses the exact core intent of the question with zero off-topic content.
+   0.20-0.24: Excellent relevance with response on-topic and addressing the question's intent clearly.
+   0.15-0.19: Good relevance with response addressing the question but with some tangential elements.
+   0.10-0.14: Adequate relevance but response partially off-topic or misses some aspects.
+   0.05-0.09: Poor relevance with response mostly tangential or addressing wrong question.
+   0.00-0.04: Fundamentally irrelevant - response does not address the question at all.
 
-1. is_relevant
-   - 1 if the response directly addresses the core intent of the question
-   - 0 if the response is off-topic, partially relevant, or unrelated
+2. COMPLETENESS (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Response fully answers ALL components and sub-questions with comprehensive coverage.
+   0.20-0.24: Excellent completeness with all major components covered, minor details may be sparse.
+   0.15-0.19: Good completeness with most components covered but some aspects under-addressed.
+   0.10-0.14: Adequate completeness but missing important components or insufficient depth.
+   0.05-0.09: Poor completeness with major gaps or many missing components.
+   0.00-0.04: Fundamentally incomplete - fails to address most of the question.
 
-2. completeness
-   - 1 if the response fully answers ALL components of the question
-   - 0 if any part of the question is missing or insufficiently addressed
+3. INTENT ALIGNMENT (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Response format and structure perfectly match the expected intent (list/fact/explanation/comparison).
+   0.20-0.24: Excellent alignment with format matching intent and proper structure.
+   0.15-0.19: Good alignment with format mostly appropriate but minor structural issues.
+   0.10-0.14: Adequate alignment but format deviates somewhat from expected intent.
+   0.05-0.09: Poor alignment with wrong format or structure for the question type.
+   0.00-0.04: Fundamentally misaligned - completely wrong format or response type.
 
-3. intent_alignment
-   - 1 if the response matches the expected format and intent (e.g., list, fact, explanation)
-   - 0 if the response deviates from the expected structure or intent
+4. FOCUS & CONCISENESS (0.00 to 0.25)
+   0.25: ABSOLUTE PERFECTION - Response contains ONLY information directly required to answer, zero extraneous content.
+   0.20-0.24: Excellent focus with minimal unnecessary explanations or tangents.
+   0.15-0.19: Good focus with some extraneous information but mostly on-point.
+   0.10-0.14: Adequate focus but includes notable tangents or unnecessary elaboration.
+   0.05-0.09: Poor focus with significant irrelevant content or verbose explanations.
+   0.00-0.04: Fundamentally unfocused - mostly extraneous information and tangents.
 
-4. no_extraneous_information
-   - 1 if the response contains ONLY information required to answer the question
-   - 0 if it includes unnecessary explanations, tangents, or unrelated content
+SCORING METHODOLOGY:
+- Evaluate each dimension independently on [0.00, 0.25] scale with 0.01 precision
+- Sum the four dimension scores to produce final answer_relevance value in [0.0, 1.0]
+- ABSOLUTE PERFECTION scores 1.0 (0.25 + 0.25 + 0.25 + 0.25) - this should be EXTREMELY RARE
+- Typical good answers will score 0.60-0.92 (0.15-0.23 per dimension)
+- Poor answers score 0.0-0.40
 
-EVALUATION GUIDELINES:
-- Ignore tone, style, or verbosity unless it affects relevance.
-- For "Set Answer" questions, ensure ALL required elements are covered.
-- For "Single Answer" questions, ensure a direct and precise response.
+The metric comment must:
+1. State the precise score for each of the 4 dimensions (e.g., "Relevance: 0.18/0.25") with specific justification
+2. Identify concrete strengths and weaknesses with evidence from the answer
+3. Explain the final aggregated score and what would be needed to improve it

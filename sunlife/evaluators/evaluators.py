@@ -1,14 +1,19 @@
 """
-Deterministic tool call evaluators: coverage, F1, arguments, trajectory.
-Each evaluator returns a Langfuse Evaluation with a 0.0–1.0 score and a reason.
+Evaluators for tool calls, plan quality, and source reliability.
+
+Includes:
+- Deterministic evaluators: coverage, F1, arguments, trajectory
+- LLM-as-judge evaluators: plan quality, source reliability
+- Composite evaluator: weighted combination of all metrics
 """
 
 from pathlib import Path
 from typing import Any
 
-from aieng.agent_evals.evaluation.graders import create_llm_as_judge_evaluator
 from aieng.agent_evals.async_client_manager import AsyncClientManager
-from aieng.agent_evals.evaluation.graders._utils import run_structured_parse_call
+from aieng.agent_evals.evaluation.graders import create_llm_as_judge_evaluator
+from aieng.agent_evals.evaluation.graders._utils import \
+    run_structured_parse_call
 from aieng.agent_evals.evaluation.graders.config import LLMRequestConfig
 from langfuse.experiment import Evaluation
 from pydantic import BaseModel
@@ -356,6 +361,7 @@ def evaluate_trajectory(
         comment=" | ".join(comment_parts),
     )
 
+
 def create_toxicity_evaluator(temperature: float = 0.0) -> Any:
     """Return a Langfuse-compatible toxicity evaluator function.
 
@@ -445,7 +451,8 @@ def create_source_reliability_evaluator(temperature: float = 0.0):
         model_config=LLMRequestConfig(temperature=temperature),
     )
 
-#Exact duplicate (tool_name, args) — rule-based
+
+# Exact duplicate (tool_name, args) — rule-based
 async def redundancy_tool_call_evaluator(
     *,
     input: str,
@@ -458,7 +465,11 @@ async def redundancy_tool_call_evaluator(
     tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
 
     if not tool_calls:
-        return [Evaluation(name="redundancy_ratio", value=0.0, comment="No tool calls found")]
+        return [
+            Evaluation(
+                name="redundancy_ratio", value=0.0, comment="No tool calls found"
+            )
+        ]
 
     seen = []
     duplicates = 0
@@ -479,7 +490,8 @@ async def redundancy_tool_call_evaluator(
         )
     ]
 
-#Duplicate URLs (web_fetch) — rule-based
+
+# Duplicate URLs (web_fetch) — rule-based
 async def duplicate_url_evaluator(
     *,
     input: str,
@@ -492,12 +504,15 @@ async def duplicate_url_evaluator(
     tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
 
     fetch_calls = [
-        tc for tc in tool_calls
-        if tc.get("name") in ("web_fetch", "fetch_file")
+        tc for tc in tool_calls if tc.get("name") in ("web_fetch", "fetch_file")
     ]
 
     if not fetch_calls:
-        return [Evaluation(name="duplicate_url_ratio", value=0.0, comment="No fetch calls found")]
+        return [
+            Evaluation(
+                name="duplicate_url_ratio", value=0.0, comment="No fetch calls found"
+            )
+        ]
 
     urls = [str(tc.get("args", {}).get("url", "")) for tc in fetch_calls]
     seen_urls: list[str] = []
@@ -522,6 +537,7 @@ async def duplicate_url_evaluator(
             ),
         )
     ]
+
 
 SEMANTIC_REDUNDANCY_SYSTEM_PROMPT = """\
 You are evaluating whether a list of search queries issued by an AI agent are semantically redundant.
@@ -550,7 +566,8 @@ class SemanticRedundancyResponse(BaseModel):
     redundant_pairs: list[list[str]]
     reasoning: str
 
-#Semantic query overlap (google_search) — LLM-as-judge
+
+# Semantic query overlap (google_search) — LLM-as-judge
 async def semantic_query_redundancy_evaluator(
     *,
     input: str,
@@ -563,7 +580,8 @@ async def semantic_query_redundancy_evaluator(
     tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
 
     search_calls = [
-        tc for tc in tool_calls
+        tc
+        for tc in tool_calls
         if tc.get("name") in ("google_search", "google_search_agent")
     ]
 
@@ -576,7 +594,9 @@ async def semantic_query_redundancy_evaluator(
             )
         ]
 
-    queries = [str(tc.get("args", {}).get("query", tc.get("args", ""))) for tc in search_calls]
+    queries = [
+        str(tc.get("args", {}).get("query", tc.get("args", ""))) for tc in search_calls
+    ]
     queries_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(queries))
 
     user_prompt = f"Here are the search queries issued by the agent:\n\n{queries_text}\n\nIdentify any semantically redundant pairs."
@@ -622,87 +642,162 @@ async def semantic_query_redundancy_evaluator(
             )
         ]
 
-def create_composite_evaluator_per_item():
-    """Create a composite evaluator for per-item scoring.
 
-    Weights (totaling 1.00):
-    - Plan Quality: 0.2 (strategic foundation)
-    - Source Reliability: 0.15 (source credibility and appropriateness)
-    - Arguments: 0.1 (execution correctness)
-    - F1: 0.1 (precision/recall balance)
-    - Coverage: 0.1 (breadth of tool usage)
-    - Trajectory: 0.05 (sequence correctness)
-    - Redundancy_too_call(rule-based): 0.1
-    - Duplicate_url(rule-based): 0.1
-    - Semantic_query_redundancy(llm as judge): 0.1
+def evaluate_composite(
+    *,
+    evaluations: list[Evaluation],
+    **kwargs: Any,
+) -> Evaluation:
+    """Composite evaluator that computes weighted score for a single item.
 
-    Returns
-    -------
-    Callable
-        Composite evaluator function.
+    This evaluator combines multiple evaluation dimensions into a single score (0.0-1.0)
+    using weighted averaging. Higher composite scores indicate better overall performance.
+
+    EVALUATION DIMENSIONS & WEIGHTS (totaling 1.00):
+
+    ANSWER QUALITY METRICS (0.60 total - PRIMARY FOCUS):
+
+    1. Correctness: 0.22 (HIGHEST WEIGHT)
+       - Measures: Factual accuracy, source grounding, reasoning soundness, precision
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why most important: Core requirement - answers must be factually correct
+       - Rubric: evaluator_prompts/correctness_rubric.txt
+
+    2. Answer Relevance: 0.16
+       - Measures: Relevance to question, completeness, intent alignment, focus
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Answer must address what was actually asked
+       - Rubric: evaluator_prompts/answer_relevance_rubric.txt
+
+    3. Hallucination: 0.14 (INVERTED: higher = less hallucination)
+       - Measures: Claim grounding, entity accuracy, citation validity, uncertainty handling
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Ensures response doesn't fabricate information
+       - Rubric: evaluator_prompts/hallucination_rubric.txt
+
+    4. Answer Clarity: 0.11
+       - Measures: Understandability, conciseness, logical structure, readability
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Correct answers must also be comprehensible
+       - Rubric: evaluator_prompts/answer_clarity_rubric.txt
+
+    5. Source Reliability: 0.11
+       - Measures: Relevance to question, source credibility, sufficiency, currency
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Quality of sources directly impacts answer trustworthiness
+       - Rubric: evaluator_prompts/source_reliability_rubric.txt
+
+    PLANNING & STRATEGY METRICS (0.12 total):
+
+    6. Plan Quality: 0.12
+       - Measures: Logical structure, tool selection accuracy, completeness, reasoning clarity
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Good plans lead to better execution and answers
+       - Rubric: evaluator_prompts/plan_quality_rubric.txt
+
+    TOOL EXECUTION METRICS (0.12 total):
+
+    7. F1 Score: 0.12
+       - Measures: Precision and recall of tool calls (did agent call expected tools?)
+       - Deterministic: Compares actual vs expected tool calls with 1:1 matching
+       - Why important: Sanity check that agent used appropriate tools
+
+    SAFETY & EFFICIENCY METRICS (0.02 total):
+
+    8. Toxicity: 0.01 (INVERTED: higher = less toxic)
+       - Measures: Freedom from harmful content, dangerous instructions, bias, data exposure
+       - LLM judge with 4 dimensions (0.00-0.25 each)
+       - Why important: Ensures safe, appropriate responses
+       - Rubric: evaluator_prompts/toxicity_rubric.txt
+
+    9. Redundancy Ratio: 0.01 (INVERTED: higher = less redundant)
+       - Measures: Exact duplicate tool calls (same name + same args)
+       - Deterministic: Counts duplicate (tool_name, args) pairs
+       - Why important: Penalizes inefficient repeated operations
+
+    10. Duplicate URL Ratio: 0.005 (INVERTED: higher = fewer duplicate fetches)
+        - Measures: Whether agent fetched same URL multiple times
+        - Deterministic: Tracks URL reuse in web_fetch/fetch_file calls
+        - Why important: Penalizes unnecessary refetching of same resources
+
+    11. Semantic Query Redundancy: 0.005 (INVERTED: higher = less semantic overlap)
+        - Measures: Whether search queries retrieve substantially overlapping information
+        - LLM judge: Evaluates semantic similarity between query pairs
+        - Why important: Penalizes redundant searches with different wording
+
+    SCORING METHODOLOGY:
+    - Each metric contributes: weight × metric_value to final score
+    - INVERTED metrics (hallucination, toxicity, redundancy): contribution = weight × (1 - metric_value)
+      This ensures lower hallucination/toxicity/redundancy = higher composite score
+    - Final composite = sum of all weighted contributions / sum of weights present
+    - Missing metrics are excluded from calculation (doesn't penalize score)
+
+    DESIGN RATIONALE:
+    - Answer quality dominates (60%) because correct, relevant, grounded answers are the core goal
+    - Correctness weighted highest (22%) as factual accuracy is non-negotiable
+    - Tool execution simplified to F1 only (12%) - detailed tool metrics redundant with source_reliability
+    - Safety/efficiency low weight (2%) but still tracked for monitoring
     """
-    from typing import Any
+    weights = {
+        "correctness": 0.22,
+        "answer_relevance": 0.16,
+        "hallucination": 0.14,
+        "plan_quality": 0.12,
+        "source_reliability": 0.11,
+        "answer_clarity": 0.11,
+        "tool_calls_f1": 0.12,
+        "toxicity_score": 0.01,  # Inverted: lower is better
+        "redundancy_ratio": 0.01,  # Inverted: lower is better
+        "duplicate_url_ratio": 0.005,  # Inverted: lower is better
+        "semantic_query_redundancy": 0.005,  # Inverted: lower is better
+    }
 
-    def evaluate_composite_item(
-        *,
-        input: Any,
-        output: Any,
-        expected_output: Any,
-        metadata: dict[str, Any],
-        evaluations: list[Evaluation],
-        **kwargs: Any,
-    ) -> Evaluation:
-        """Composite evaluator that computes weighted score for a single item."""
-        weights = {
-            "plan_quality": 0.2,
-            "source_reliability": 0.15,
-            "tool_calls_arguments": 0.1,
-            "tool_calls_f1": 0.1,
-            "tool_calls_coverage": 0.1,
-            "tool_calls_trajectory": 0.05,
-            "too_call_redundancy" : 0.1,
-            "duplicate_url" : 0.1,
-            "semantic_query_redundancy": 0.1
-        }
+    # Extract scores from evaluations
+    # Redundancy metrics need to be inverted (lower redundancy = better score)
+    redundancy_metrics = {
+        "redundancy_ratio",
+        "duplicate_url_ratio",
+        "semantic_query_redundancy",
+    }
 
-        # Extract scores from evaluations
-        scores = {}
-        for eval_result in evaluations:
-            if eval_result.name in weights:
-                scores[eval_result.name] = eval_result.value
+    scores = {}
+    for eval_result in evaluations:
+        if eval_result.name in weights:
+            value = eval_result.value
+            # Invert redundancy metrics: 1.0 - value (so 0 redundancy = 1.0 score)
+            if eval_result.name in redundancy_metrics:
+                value = 1.0 - value
+            scores[eval_result.name] = value
 
-        # Calculate weighted score
-        weighted_sum = 0.0
-        total_weight = 0.0
-        for metric_name, weight in weights.items():
-            if metric_name in scores:
-                weighted_sum += scores[metric_name] * weight
-                total_weight += weight
+    # Calculate weighted score
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for metric_name, weight in weights.items():
+        if metric_name in scores:
+            weighted_sum += scores[metric_name] * weight
+            total_weight += weight
 
-        composite_score = weighted_sum / total_weight if total_weight > 0 else 0.0
+    composite_score = weighted_sum / total_weight if total_weight > 0 else 0.0
 
-        # Build comment
-        comment_parts = [f"Composite: {composite_score:.3f}"]
-        for metric_name, weight in weights.items():
-            if metric_name in scores:
-                score = scores[metric_name]
-                contribution = (
-                    score * weight / total_weight if total_weight > 0 else 0.0
-                )
-                metric_display = (
-                    metric_name.replace("tool_calls_", "").replace("_", " ").title()
-                )
-                comment_parts.append(
-                    f"{metric_display}: {score:.3f} (wgt: {weight:.2f}, contrib: {contribution:.3f})"
-                )
+    # Build comment
+    comment_parts = [f"Composite: {composite_score:.3f}"]
+    for metric_name, weight in weights.items():
+        if metric_name in scores:
+            score = scores[metric_name]
+            contribution = score * weight / total_weight if total_weight > 0 else 0.0
+            metric_display = (
+                metric_name.replace("tool_calls_", "").replace("_", " ").title()
+            )
+            comment_parts.append(
+                f"{metric_display}: {score:.3f} (wgt: {weight:.2f}, contrib: {contribution:.3f})"
+            )
 
-        return Evaluation(
-            name="composite_score",
-            value=composite_score,
-            comment=" | ".join(comment_parts),
-        )
+    return Evaluation(
+        name="composite_score",
+        value=composite_score,
+        comment=" | ".join(comment_parts),
+    )
 
-    return evaluate_composite_item
 
 def create_answer_relevance_evaluator(temperature: float = 0.0) -> Any:
     """Return a Langfuse-compatible answer relevance evaluator function.
@@ -749,9 +844,7 @@ def create_correctness_evaluator(temperature: float = 0.0) -> Any:
         Async evaluator compatible with `run_experiment`.
     """
     rubric_path = (
-        Path(__file__).parent.parent
-        / "evaluator_prompts"
-        / "correctness_rubric.txt"
+        Path(__file__).parent.parent / "evaluator_prompts" / "correctness_rubric.txt"
     )
 
     return create_llm_as_judge_evaluator(
@@ -777,13 +870,37 @@ def create_hallucination_evaluator(temperature: float = 0.0) -> Any:
         Async evaluator compatible with `run_experiment`.
     """
     rubric_path = (
-        Path(__file__).parent.parent
-        / "evaluator_prompts"
-        / "hallucination_rubric.txt"
+        Path(__file__).parent.parent / "evaluator_prompts" / "hallucination_rubric.txt"
     )
 
     return create_llm_as_judge_evaluator(
         name="hallucination_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
+
+
+def create_answer_clarity_evaluator(temperature: float = 0.0):
+    """Create an LLM-as-judge evaluator for answer clarity
+
+    Evaluates answer's understandability, conciseness, and structure.
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent / "evaluator_prompts" / "answer_clarity_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="answer_clarity",
         rubric_markdown=rubric_path,
         model_config=LLMRequestConfig(temperature=temperature),
     )

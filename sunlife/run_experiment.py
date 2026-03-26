@@ -7,13 +7,17 @@ from typing import Any
 from aieng.agent_evals.evaluation import run_experiment
 from aieng.agent_evals.knowledge_qa import KnowledgeGroundedAgent
 from dotenv import load_dotenv
-from evaluators.evaluators import (create_composite_evaluator_per_item,
+from evaluators.evaluators import (create_answer_clarity_evaluator,
+                                   create_answer_relevance_evaluator,
+                                   create_correctness_evaluator,
+                                   create_hallucination_evaluator,
                                    create_plan_quality_evaluator,
                                    create_source_reliability_evaluator,
-                                   evaluate_arguments, evaluate_coverage,
+                                   create_toxicity_evaluator,
+                                   duplicate_url_evaluator, evaluate_arguments,
+                                   evaluate_composite, evaluate_coverage,
                                    evaluate_f1, evaluate_trajectory,
-                                   redundancy_tool_call_evaluator, 
-                                   duplicate_url_evaluator, 
+                                   redundancy_tool_call_evaluator,
                                    semantic_query_redundancy_evaluator)
 from rich.console import Console
 
@@ -55,7 +59,7 @@ def main():
         f"[cyan]Running tool call evaluation experiment on dataset: {DATASET_NAME}[/cyan]"
     )
 
-    experiment_result = run_experiment(
+    run_experiment(
         DATASET_NAME,
         name="knowledge-agent-tool-calls",
         task=task,
@@ -66,17 +70,23 @@ def main():
             evaluate_trajectory,
             create_plan_quality_evaluator(),
             create_source_reliability_evaluator(),
+            create_toxicity_evaluator(),
+            create_answer_relevance_evaluator(),
+            create_answer_clarity_evaluator(),
+            create_correctness_evaluator(),
+            create_hallucination_evaluator(),
             redundancy_tool_call_evaluator,
             duplicate_url_evaluator,
-            semantic_query_redundancy_evaluator
+            semantic_query_redundancy_evaluator,
         ],
-        composite_evaluator=create_composite_evaluator_per_item(),
+        composite_evaluator=evaluate_composite,
         description="Evaluate tool call accuracy and plan quality - coverage, F1, arguments, trajectory, tool correctness judge, plan quality judge, and composite score (per-item and aggregate).",
         max_concurrency=1,
     )
 
     console.print(f"\n[green]✓[/green] Experiment completed!")
     console.print(f"[cyan]Results published to Langfuse[/cyan]")
+
 
 if __name__ == "__main__":
     main()
