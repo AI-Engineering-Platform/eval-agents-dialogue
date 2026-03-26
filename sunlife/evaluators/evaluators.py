@@ -464,7 +464,9 @@ def evaluate_composite(
         if metric_name in scores:
             score = scores[metric_name]
             contribution = score * weight / total_weight if total_weight > 0 else 0.0
-            metric_display = metric_name.replace("tool_calls_", "").replace("_", " ").title()
+            metric_display = (
+                metric_name.replace("tool_calls_", "").replace("_", " ").title()
+            )
             comment_parts.append(
                 f"{metric_display}: {score:.3f} (wgt: {weight:.2f}, contrib: {contribution:.3f})"
             )

@@ -7,15 +7,11 @@ from typing import Any
 from aieng.agent_evals.evaluation import run_experiment
 from aieng.agent_evals.knowledge_qa import KnowledgeGroundedAgent
 from dotenv import load_dotenv
-from evaluators.evaluators import (
-    create_plan_quality_evaluator,
-    create_source_reliability_evaluator,
-    evaluate_arguments,
-    evaluate_composite,
-    evaluate_coverage,
-    evaluate_f1,
-    evaluate_trajectory,
-)
+from evaluators.evaluators import (create_plan_quality_evaluator,
+                                   create_source_reliability_evaluator,
+                                   evaluate_arguments, evaluate_composite,
+                                   evaluate_coverage, evaluate_f1,
+                                   evaluate_trajectory)
 from rich.console import Console
 
 load_dotenv(verbose=True)
@@ -56,7 +52,7 @@ def main():
         f"[cyan]Running tool call evaluation experiment on dataset: {DATASET_NAME}[/cyan]"
     )
 
-    experiment_result = run_experiment(
+    run_experiment(
         DATASET_NAME,
         name="knowledge-agent-tool-calls",
         task=task,
@@ -75,6 +71,7 @@ def main():
 
     console.print(f"\n[green]✓[/green] Experiment completed!")
     console.print(f"[cyan]Results published to Langfuse[/cyan]")
+
 
 if __name__ == "__main__":
     main()
