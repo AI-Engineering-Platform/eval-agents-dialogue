@@ -703,3 +703,87 @@ def create_composite_evaluator_per_item():
         )
 
     return evaluate_composite_item
+
+def create_answer_relevance_evaluator(temperature: float = 0.0) -> Any:
+    """Return a Langfuse-compatible answer relevance evaluator function.
+
+    Evaluates whether the agent's answer is relevant, complete, and aligned
+    with the user's intent.
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent
+        / "evaluator_prompts"
+        / "answer_relevance_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="answer_relevance_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
+
+
+def create_correctness_evaluator(temperature: float = 0.0) -> Any:
+    """Return a Langfuse-compatible correctness evaluator function.
+
+    Evaluates factual correctness and reasoning quality of the agent response.
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent
+        / "evaluator_prompts"
+        / "correctness_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="correctness_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
+
+
+def create_hallucination_evaluator(temperature: float = 0.0) -> Any:
+    """Return a Langfuse-compatible hallucination evaluator function.
+
+    Evaluates whether the response is grounded and free from hallucinations.
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent
+        / "evaluator_prompts"
+        / "hallucination_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="hallucination_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
