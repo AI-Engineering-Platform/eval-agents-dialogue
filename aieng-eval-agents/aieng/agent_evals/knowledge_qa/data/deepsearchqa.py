@@ -23,6 +23,10 @@ class DSQAExample(BaseModel):
     problem_category: str = Field(description="Category of the problem (e.g., 'Politics & Government').")
     answer: str = Field(description="The ground truth answer.")
     answer_type: str = Field(description="Type of answer (e.g., 'Single Answer', 'List').")
+    expected_tool_calls: list[dict] = Field(
+        default_factory=list,
+        description="Expected tool calls with names and arguments for this example."
+    )
 
 
 class DeepSearchQADataset:
