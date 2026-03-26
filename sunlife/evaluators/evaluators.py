@@ -7,8 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from aieng.agent_evals.evaluation.graders import create_llm_as_judge_evaluator
+from aieng.agent_evals.async_client_manager import AsyncClientManager
+from aieng.agent_evals.evaluation.graders._utils import run_structured_parse_call
 from aieng.agent_evals.evaluation.graders.config import LLMRequestConfig
 from langfuse.experiment import Evaluation
+from pydantic import BaseModel
 
 
 def _calculate_edit_distance(seq1: list[str], seq2: list[str]) -> int:
@@ -353,6 +356,35 @@ def evaluate_trajectory(
         comment=" | ".join(comment_parts),
     )
 
+def create_toxicity_evaluator(temperature: float = 0.0) -> Any:
+    """Return a Langfuse-compatible toxicity evaluator function.
+
+    The returned evaluator has the item-level signature expected by
+    `run_experiment`:
+
+        async def(*, input, output, expected_output, metadata, **kwargs)
+            -> list[Evaluation]
+
+    Parameters
+    ----------
+    temperature : float
+        Judge model temperature. Keep at 0.0 for deterministic scoring.
+
+    Returns
+    -------
+    EvaluatorFunction
+        Async evaluator compatible with `run_experiment`.
+    """
+    rubric_path = (
+        Path(__file__).parent.parent / "evaluator_prompts" / "toxicity_rubric.txt"
+    )
+
+    return create_llm_as_judge_evaluator(
+        name="toxicity_judge",
+        rubric_markdown=rubric_path,
+        model_config=LLMRequestConfig(temperature=temperature),
+    )
+
 
 def create_plan_quality_evaluator(temperature: float = 0.0) -> Any:
     """Return a Langfuse-compatible plan quality evaluator function.
@@ -413,17 +445,196 @@ def create_source_reliability_evaluator(temperature: float = 0.0):
         model_config=LLMRequestConfig(temperature=temperature),
     )
 
+#Exact duplicate (tool_name, args) — rule-based
+async def redundancy_tool_call_evaluator(
+    *,
+    input: str,
+    output: Any,
+    expected_output: Any,
+    metadata: Any = None,
+    **kwargs: Any,
+) -> list[Evaluation]:
+    """Evaluate exact duplicate tool calls: same tool name and same args."""
+    tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
+
+    if not tool_calls:
+        return [Evaluation(name="redundancy_ratio", value=0.0, comment="No tool calls found")]
+
+    seen = []
+    duplicates = 0
+    for tc in tool_calls:
+        key = (tc.get("name"), str(tc.get("args", {})))
+        if key in seen:
+            duplicates += 1
+        else:
+            seen.append(key)
+
+    redundancy_ratio = duplicates / len(tool_calls)
+
+    return [
+        Evaluation(
+            name="redundancy_ratio",
+            value=round(redundancy_ratio, 3),
+            comment=f"{duplicates} exact duplicate calls out of {len(tool_calls)} total",
+        )
+    ]
+
+#Duplicate URLs (web_fetch) — rule-based
+async def duplicate_url_evaluator(
+    *,
+    input: str,
+    output: Any,
+    expected_output: Any,
+    metadata: Any = None,
+    **kwargs: Any,
+) -> list[Evaluation]:
+    """Evaluate whether the agent fetched the same URL more than once."""
+    tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
+
+    fetch_calls = [
+        tc for tc in tool_calls
+        if tc.get("name") in ("web_fetch", "fetch_file")
+    ]
+
+    if not fetch_calls:
+        return [Evaluation(name="duplicate_url_ratio", value=0.0, comment="No fetch calls found")]
+
+    urls = [str(tc.get("args", {}).get("url", "")) for tc in fetch_calls]
+    seen_urls: list[str] = []
+    duplicate_urls: list[str] = []
+
+    for url in urls:
+        if url and url in seen_urls:
+            duplicate_urls.append(url)
+        else:
+            seen_urls.append(url)
+
+    duplicate_url_ratio = len(duplicate_urls) / len(fetch_calls)
+
+    return [
+        Evaluation(
+            name="duplicate_url_ratio",
+            value=round(duplicate_url_ratio, 3),
+            comment=(
+                f"{len(duplicate_urls)} duplicate URLs out of {len(fetch_calls)} fetch calls"
+                if duplicate_urls
+                else f"No duplicate URLs across {len(fetch_calls)} fetch calls"
+            ),
+        )
+    ]
+
+SEMANTIC_REDUNDANCY_SYSTEM_PROMPT = """\
+You are evaluating whether a list of search queries issued by an AI agent are semantically redundant.
+
+Two queries are semantically redundant if they would retrieve substantially overlapping information,
+even if they use different words, abbreviations, or phrasing.
+
+Examples of redundant pairs:
+- "Federal Reserve interest rate hike" and "Fed rate increase 2024"
+- "causes of 2008 financial crisis" and "what caused the subprime mortgage collapse"
+
+Examples of non-redundant pairs:
+- "Basel III capital requirements" and "Basel III implementation timeline"
+- "Federal Reserve mandate" and "Federal Reserve interest rate history"
+
+Return valid JSON only. Do not use Markdown code blocks.
+Schema:
+{
+  "redundant_pairs": [["query A", "query B"], ...],
+  "reasoning": "brief explanation"
+}
+"""
+
+
+class SemanticRedundancyResponse(BaseModel):
+    redundant_pairs: list[list[str]]
+    reasoning: str
+
+#Semantic query overlap (google_search) — LLM-as-judge
+async def semantic_query_redundancy_evaluator(
+    *,
+    input: str,
+    output: Any,
+    expected_output: Any,
+    metadata: Any = None,
+    **kwargs: Any,
+) -> list[Evaluation]:
+    """Evaluate whether the agent issued semantically redundant search queries."""
+    tool_calls = output.get("tool_calls", []) if isinstance(output, dict) else []
+
+    search_calls = [
+        tc for tc in tool_calls
+        if tc.get("name") in ("google_search", "google_search_agent")
+    ]
+
+    if len(search_calls) < 2:
+        return [
+            Evaluation(
+                name="semantic_query_redundancy",
+                value=0.0,
+                comment="Fewer than 2 search queries — nothing to compare",
+            )
+        ]
+
+    queries = [str(tc.get("args", {}).get("query", tc.get("args", ""))) for tc in search_calls]
+    queries_text = "\n".join(f"{i + 1}. {q}" for i, q in enumerate(queries))
+
+    user_prompt = f"Here are the search queries issued by the agent:\n\n{queries_text}\n\nIdentify any semantically redundant pairs."
+
+    try:
+        client_manager = AsyncClientManager.get_instance()
+        completion = await run_structured_parse_call(
+            openai_client=client_manager.openai_client,
+            default_model=client_manager.configs.default_evaluator_model,
+            model_config=LLMRequestConfig(temperature=0.0),
+            system_prompt=SEMANTIC_REDUNDANCY_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            response_format=SemanticRedundancyResponse,
+        )
+
+        result = completion.choices[0].message.parsed
+        if result is None:
+            raise ValueError("LLM returned no structured output")
+
+        total_pairs = len(queries) * (len(queries) - 1) // 2  # n choose 2
+        redundant_count = len(result.redundant_pairs)
+        redundancy_score = redundant_count / total_pairs if total_pairs > 0 else 0.0
+
+        comment = result.reasoning
+        if result.redundant_pairs:
+            pair_strs = "; ".join(f'"{a}" ~ "{b}"' for a, b in result.redundant_pairs)
+            comment = f"Redundant pairs: {pair_strs}. {result.reasoning}"
+
+        return [
+            Evaluation(
+                name="semantic_query_redundancy",
+                value=round(redundancy_score, 3),
+                comment=comment,
+            )
+        ]
+
+    except Exception as e:
+        return [
+            Evaluation(
+                name="semantic_query_redundancy",
+                value=0.0,
+                comment=f"Evaluation error: {e}",
+            )
+        ]
 
 def create_composite_evaluator_per_item():
     """Create a composite evaluator for per-item scoring.
 
     Weights (totaling 1.00):
-    - Plan Quality: 0.25 (strategic foundation)
-    - Source Reliability: 0.20 (source credibility and appropriateness)
-    - Arguments: 0.20 (execution correctness)
-    - F1: 0.15 (precision/recall balance)
-    - Coverage: 0.12 (breadth of tool usage)
-    - Trajectory: 0.08 (sequence correctness)
+    - Plan Quality: 0.2 (strategic foundation)
+    - Source Reliability: 0.15 (source credibility and appropriateness)
+    - Arguments: 0.1 (execution correctness)
+    - F1: 0.1 (precision/recall balance)
+    - Coverage: 0.1 (breadth of tool usage)
+    - Trajectory: 0.05 (sequence correctness)
+    - Redundancy_too_call(rule-based): 0.1
+    - Duplicate_url(rule-based): 0.1
+    - Semantic_query_redundancy(llm as judge): 0.1
 
     Returns
     -------
@@ -443,12 +654,15 @@ def create_composite_evaluator_per_item():
     ) -> Evaluation:
         """Composite evaluator that computes weighted score for a single item."""
         weights = {
-            "plan_quality": 0.25,
-            "source_reliability": 0.20,
-            "tool_calls_arguments": 0.20,
-            "tool_calls_f1": 0.15,
-            "tool_calls_coverage": 0.12,
-            "tool_calls_trajectory": 0.08,
+            "plan_quality": 0.2,
+            "source_reliability": 0.15,
+            "tool_calls_arguments": 0.1,
+            "tool_calls_f1": 0.1,
+            "tool_calls_coverage": 0.1,
+            "tool_calls_trajectory": 0.05,
+            "too_call_redundancy" : 0.1,
+            "duplicate_url" : 0.1,
+            "semantic_query_redundancy": 0.1
         }
 
         # Extract scores from evaluations

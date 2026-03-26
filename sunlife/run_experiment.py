@@ -11,7 +11,10 @@ from evaluators.evaluators import (create_composite_evaluator_per_item,
                                    create_plan_quality_evaluator,
                                    create_source_reliability_evaluator,
                                    evaluate_arguments, evaluate_coverage,
-                                   evaluate_f1, evaluate_trajectory)
+                                   evaluate_f1, evaluate_trajectory,
+                                   redundancy_tool_call_evaluator, 
+                                   duplicate_url_evaluator, 
+                                   semantic_query_redundancy_evaluator)
 from rich.console import Console
 
 load_dotenv(verbose=True)
@@ -63,6 +66,9 @@ def main():
             evaluate_trajectory,
             create_plan_quality_evaluator(),
             create_source_reliability_evaluator(),
+            redundancy_tool_call_evaluator,
+            duplicate_url_evaluator,
+            semantic_query_redundancy_evaluator
         ],
         composite_evaluator=create_composite_evaluator_per_item(),
         description="Evaluate tool call accuracy and plan quality - coverage, F1, arguments, trajectory, tool correctness judge, plan quality judge, and composite score (per-item and aggregate).",
