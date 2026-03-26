@@ -414,8 +414,12 @@ def create_source_reliability_evaluator(temperature: float = 0.0):
     )
 
 
-def create_composite_evaluator_per_item():
-    """Create a composite evaluator for per-item scoring.
+def evaluate_composite(
+    *,
+    evaluations: list[Evaluation],
+    **kwargs: Any,
+) -> Evaluation:
+    """Composite evaluator that computes weighted score for a single item.
 
     Weights (totaling 1.00):
     - Plan Quality: 0.25 (strategic foundation)
@@ -424,68 +428,45 @@ def create_composite_evaluator_per_item():
     - F1: 0.15 (precision/recall balance)
     - Coverage: 0.12 (breadth of tool usage)
     - Trajectory: 0.08 (sequence correctness)
-
-    Returns
-    -------
-    Callable
-        Composite evaluator function.
     """
-    from typing import Any
+    weights = {
+        "plan_quality": 0.25,
+        "source_reliability": 0.20,
+        "tool_calls_arguments": 0.20,
+        "tool_calls_f1": 0.15,
+        "tool_calls_coverage": 0.12,
+        "tool_calls_trajectory": 0.08,
+    }
 
-    def evaluate_composite_item(
-        *,
-        input: Any,
-        output: Any,
-        expected_output: Any,
-        metadata: dict[str, Any],
-        evaluations: list[Evaluation],
-        **kwargs: Any,
-    ) -> Evaluation:
-        """Composite evaluator that computes weighted score for a single item."""
-        weights = {
-            "plan_quality": 0.25,
-            "source_reliability": 0.20,
-            "tool_calls_arguments": 0.20,
-            "tool_calls_f1": 0.15,
-            "tool_calls_coverage": 0.12,
-            "tool_calls_trajectory": 0.08,
-        }
+    # Extract scores from evaluations
+    scores = {}
+    for eval_result in evaluations:
+        if eval_result.name in weights:
+            scores[eval_result.name] = eval_result.value
 
-        # Extract scores from evaluations
-        scores = {}
-        for eval_result in evaluations:
-            if eval_result.name in weights:
-                scores[eval_result.name] = eval_result.value
+    # Calculate weighted score
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for metric_name, weight in weights.items():
+        if metric_name in scores:
+            weighted_sum += scores[metric_name] * weight
+            total_weight += weight
 
-        # Calculate weighted score
-        weighted_sum = 0.0
-        total_weight = 0.0
-        for metric_name, weight in weights.items():
-            if metric_name in scores:
-                weighted_sum += scores[metric_name] * weight
-                total_weight += weight
+    composite_score = weighted_sum / total_weight if total_weight > 0 else 0.0
 
-        composite_score = weighted_sum / total_weight if total_weight > 0 else 0.0
+    # Build comment
+    comment_parts = [f"Composite: {composite_score:.3f}"]
+    for metric_name, weight in weights.items():
+        if metric_name in scores:
+            score = scores[metric_name]
+            contribution = score * weight / total_weight if total_weight > 0 else 0.0
+            metric_display = metric_name.replace("tool_calls_", "").replace("_", " ").title()
+            comment_parts.append(
+                f"{metric_display}: {score:.3f} (wgt: {weight:.2f}, contrib: {contribution:.3f})"
+            )
 
-        # Build comment
-        comment_parts = [f"Composite: {composite_score:.3f}"]
-        for metric_name, weight in weights.items():
-            if metric_name in scores:
-                score = scores[metric_name]
-                contribution = (
-                    score * weight / total_weight if total_weight > 0 else 0.0
-                )
-                metric_display = (
-                    metric_name.replace("tool_calls_", "").replace("_", " ").title()
-                )
-                comment_parts.append(
-                    f"{metric_display}: {score:.3f} (wgt: {weight:.2f}, contrib: {contribution:.3f})"
-                )
-
-        return Evaluation(
-            name="composite_score",
-            value=composite_score,
-            comment=" | ".join(comment_parts),
-        )
-
-    return evaluate_composite_item
+    return Evaluation(
+        name="composite_score",
+        value=composite_score,
+        comment=" | ".join(comment_parts),
+    )
